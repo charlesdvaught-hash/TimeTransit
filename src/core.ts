@@ -121,16 +121,31 @@ export type TripChain = {
   returnTrip?: Itinerary;
   duration: number;
 };
-export function combinations(stops: Stop[]): { stop: Stop; place: Place }[][] {
+export function combinations(
+  stops: Stop[],
+  used: ReadonlySet<string> = new Set(),
+): { stop: Stop; place: Place }[][] {
   if (!stops.length) return [[]];
   return stops.flatMap((stop, i) =>
     stop.candidates
+      .filter(
+        (place, index, candidates) =>
+          !used.has(place.id) &&
+          candidates.findIndex((candidate) => candidate.id === place.id) ===
+            index &&
+          !stops.some(
+            (other) =>
+              other.id !== stop.id &&
+              other.candidates.length === 1 &&
+              other.candidates[0].id === place.id,
+          ),
+      )
       .slice(0, 3)
       .flatMap((place) =>
-        combinations(stops.filter((_, j) => i !== j)).map((rest) => [
-          { stop, place },
-          ...rest,
-        ]),
+        combinations(
+          stops.filter((_, j) => i !== j),
+          new Set([...used, place.id]),
+        ).map((rest) => [{ stop, place }, ...rest]),
       ),
   );
 }
@@ -160,6 +175,10 @@ export async function optimize(
   const shortlist = combinations(stops)
     .sort((a, b) => estimate(a) - estimate(b))
     .slice(0, 5);
+  if (!shortlist.length)
+    throw new Error(
+      "No trip with distinct places is available. Choose different stops or broaden your searches.",
+    );
   let best: TripChain | undefined;
   let error: unknown;
   for (const combo of shortlist) {

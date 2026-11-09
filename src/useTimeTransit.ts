@@ -162,12 +162,17 @@ export function useTimeTransit() {
     try {
       const start = departure ? new Date(departure) : new Date();
       const resolved: Stop[] = [];
+      const specificIds = new Set(
+        stops.flatMap((stop) => stop.candidates.map((place) => place.id)),
+      );
       for (const s of stops) {
         if (s.candidates.length) {
           resolved.push(s);
           continue;
         }
-        const candidates = await search(s.label, origin, c.signal);
+        const candidates = (await search(s.label, origin, c.signal)).filter(
+          (place) => !specificIds.has(place.id),
+        );
         const timed = [];
         for (const p of candidates.slice(0, 6)) {
           const trip = await plan(origin, p, start, c.signal);
@@ -175,10 +180,7 @@ export function useTimeTransit() {
         }
         resolved.push({
           ...s,
-          candidates: timed
-            .sort((a, b) => a.t - b.t)
-            .slice(0, 3)
-            .map((x) => x.p),
+          candidates: timed.sort((a, b) => a.t - b.t).map((x) => x.p),
         });
       }
       const samples = results.filter((r) => r.trip.duration > 0);

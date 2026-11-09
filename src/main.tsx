@@ -23,11 +23,13 @@ function App() {
         </a>
         <div className="top-meta">
           <span className="live-dot" />
-          {providers.length
-            ? providers.slice(0, 2).join(" + ")
-            : "Discovering local transit"}
+          <span className="provider-name">
+            {providers.length
+              ? providers.slice(0, 2).join(" + ")
+              : "Discovering local transit"}
+          </span>
           <span className="divider" />
-          {time(now)}
+          <span className="status-clock">{time(now)}</span>
         </div>
       </header>
       <Panel controller={controller} />
