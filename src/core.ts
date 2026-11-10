@@ -4,6 +4,7 @@ export type Place = {
   lat: number;
   lon: number;
   address?: string;
+  stopId?: string;
 };
 export type Leg = {
   mode: string;
@@ -11,6 +12,13 @@ export type Leg = {
   routeShortName?: string;
   routeColor?: string;
   agencyName?: string;
+  agencyId?: string;
+  routeId?: string;
+  tripId?: string;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
+  realTime?: boolean;
+  distance?: number;
   headsign?: string;
   startTime: string;
   endTime: string;
@@ -49,7 +57,10 @@ export const categories: Record<string, string> = {
   "Bank/ATM": "amenity:bank",
   Hardware: "shop:doityourself",
 };
-export function distance(a: Place, b: Place) {
+export function distance(
+  a: Pick<Place, "lat" | "lon">,
+  b: Pick<Place, "lat" | "lon">,
+) {
   const r = Math.PI / 180,
     dlat = (b.lat - a.lat) * r,
     dlon = (b.lon - a.lon) * r;

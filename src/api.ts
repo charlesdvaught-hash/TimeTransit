@@ -5,6 +5,8 @@ import {
   type Place,
   type Itinerary,
 } from "./core";
+import { defaults, walkParams, type Preferences } from "./preferences";
+import { logFeed } from "./reliabilityStore";
 const cache = new Map<string, unknown>();
 let active = 0;
 const queue: (() => void)[] = [];
@@ -91,6 +93,8 @@ export async function plan(
   b: Place,
   time: Date,
   signal?: AbortSignal,
+  preferences: Preferences = defaults,
+  onAgencies?: (agencies: string[]) => void,
 ): Promise<Itinerary> {
   const p = new URLSearchParams({
     fromPlace: `${a.lat},${a.lon}`,
@@ -98,11 +102,59 @@ export async function plan(
     time: time.toISOString(),
     arriveBy: "false",
     numItineraries: "3",
+    ...walkParams(preferences),
   });
-  return fastest(
-    await json(`https://api.transitous.org/api/v1/plan?${p}`, signal),
-    time,
+  const data = await json(
+    `https://api.transitous.org/api/v2/plan?${p}`,
+    signal,
   );
+  if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+  logFeed([...(data.itineraries || []), ...(data.direct || [])]);
+  onAgencies?.([
+    ...new Set<string>(
+      (data.itineraries || []).flatMap((t: Itinerary) =>
+        t.legs.flatMap((l) => (l.agencyName ? [l.agencyName] : [])),
+      ),
+    ),
+  ]);
+  return fastest(data, time);
+}
+export async function searchOrigin(
+  query: string,
+  origin: Place,
+  signal?: AbortSignal,
+): Promise<Place[]> {
+  const zip = /^\d{5}$/.test(query.trim());
+  const p = new URLSearchParams({
+    q: zip ? `${query.trim()} United States` : query,
+    limit: "8",
+  });
+  if (zip) p.set("countrycode", "us");
+  else {
+    p.set("lat", String(origin.lat));
+    p.set("lon", String(origin.lon));
+  }
+  const data = await json(`https://photon.komoot.io/api/?${p}`, signal);
+  const features = zip
+    ? data.features.filter(
+        (f: any) =>
+          f.properties.osm_value === "postcode" &&
+          f.properties.name === query.trim() &&
+          f.properties.countrycode === "US",
+      )
+    : data.features;
+  if (!features.length)
+    throw new Error(
+      "No matching origin found. Try a city and state or a full address.",
+    );
+  return features.map((f: any) => ({
+    id: `origin-${f.properties.osm_id || f.properties.name}-${f.geometry.coordinates.join(",")}`,
+    name: [f.properties.name, f.properties.city, f.properties.state]
+      .filter(Boolean)
+      .join(" · "),
+    lat: f.geometry.coordinates[1],
+    lon: f.geometry.coordinates[0],
+  }));
 }
 export async function nearby(
   origin: Place,
