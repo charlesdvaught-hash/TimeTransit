@@ -14,12 +14,14 @@ import { search, plan, nearby } from "./api";
 import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
 export function useTimeTransit() {
   const map = useRef<maplibregl.Map | null>(null),
-    abort = useRef<AbortController | null>(null);
+    exploreAbort = useRef<AbortController | null>(null),
+    tripAbort = useRef<AbortController | null>(null);
   const [origin, setOrigin] = useState(chicago),
     [query, setQuery] = useState(""),
     [results, setResults] = useState<Result[]>([]),
     [selected, setSelected] = useState<Result | null>(null),
-    [busy, setBusy] = useState(false),
+    [exploreBusy, setExploreBusy] = useState(false),
+    [tripBusy, setTripBusy] = useState(false),
     [progress, setProgress] = useState([0, 0]),
     [error, setError] = useState(""),
     [providers, setProviders] = useState<string[]>([]),
@@ -33,8 +35,9 @@ export function useTimeTransit() {
     [originSearch, setOriginSearch] = useState(""),
     [originOptions, setOriginOptions] = useState<Place[]>([]);
   function invalidateTrip() {
-    abort.current?.abort();
-    setBusy(false);
+    tripAbort.current?.abort();
+    tripAbort.current = null;
+    setTripBusy(false);
     setChain(null);
   }
   function setStops(value: Stop[]) {
@@ -47,10 +50,17 @@ export function useTimeTransit() {
   }
   function setDeparture(value: string) {
     invalidateTrip();
+    exploreAbort.current?.abort();
+    setExploreBusy(false);
+    setResults([]);
+    setSelected(null);
+    setProgress([0, 0]);
     updateDeparture(value);
   }
   function changeOrigin(p: Place) {
-    abort.current?.abort();
+    invalidateTrip();
+    exploreAbort.current?.abort();
+    setExploreBusy(false);
     setOrigin(p);
     setResults([]);
     setSelected(null);
@@ -94,11 +104,12 @@ export function useTimeTransit() {
   async function run(term: string) {
     if (!term.trim()) return;
     const start = departureSnapshot(departure);
-    abort.current?.abort();
+    exploreAbort.current?.abort();
+    invalidateTrip();
     const c = new AbortController();
-    abort.current = c;
+    exploreAbort.current = c;
     setQuery(term);
-    setBusy(true);
+    setExploreBusy(true);
     setError("");
     setResults([]);
     setSelected(null);
@@ -106,13 +117,14 @@ export function useTimeTransit() {
     setProgress([0, 0]);
     try {
       const candidates = await search(term, origin, c.signal);
+      if (c.signal.aborted) return;
       setProgress([0, candidates.length]);
       let done = 0;
       const found: Result[] = [];
       let index = 0;
       await Promise.all(
         Array.from({ length: 3 }, async () => {
-          while (index < candidates.length) {
+          while (!c.signal.aborted && index < candidates.length) {
             const i = index++,
               p = candidates[i];
             try {
@@ -146,11 +158,12 @@ export function useTimeTransit() {
           }
         }),
       );
-      if (!c.signal.aborted && found.length) setSelected(rank(found)[0]);
+      if (!c.signal.aborted && !tripAbort.current && found.length)
+        setSelected(rank(found)[0]);
     } catch (e) {
       if (!c.signal.aborted) setError((e as Error).message);
     } finally {
-      if (!c.signal.aborted) setBusy(false);
+      if (!c.signal.aborted) setExploreBusy(false);
     }
   }
   function addStop(place?: Place) {
@@ -167,10 +180,10 @@ export function useTimeTransit() {
     setTab("trip");
   }
   async function optimizeTrip() {
-    abort.current?.abort();
+    tripAbort.current?.abort();
     const c = new AbortController();
-    abort.current = c;
-    setBusy(true);
+    tripAbort.current = c;
+    setTripBusy(true);
     setError("");
     setChain(null);
     try {
@@ -209,7 +222,7 @@ export function useTimeTransit() {
     } catch (e) {
       if (!c.signal.aborted) setError((e as Error).message);
     } finally {
-      if (!c.signal.aborted) setBusy(false);
+      if (!c.signal.aborted) setTripBusy(false);
     }
   }
   const total = chain?.duration || selected?.trip.duration;
@@ -223,8 +236,9 @@ export function useTimeTransit() {
     setResults,
     selected,
     setSelected,
-    busy,
-    setBusy,
+    busy: exploreBusy || tripBusy,
+    exploreBusy,
+    tripBusy,
     progress,
     setProgress,
     error,

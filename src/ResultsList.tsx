@@ -17,7 +17,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
     results,
     selected,
     setSelected,
-    busy,
+    exploreBusy: busy,
     progress,
     stops,
     chain,

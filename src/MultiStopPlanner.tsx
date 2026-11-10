@@ -7,8 +7,16 @@ export function MultiStopPlanner({
 }: {
   controller: TransitController;
 }) {
-  const { busy, stops, setStops, back, setBack, chain, addStop, optimizeTrip } =
-    controller;
+  const {
+    tripBusy: busy,
+    stops,
+    setStops,
+    back,
+    setBack,
+    chain,
+    addStop,
+    optimizeTrip,
+  } = controller;
   return (
     <div className="trip-builder">
       <h3>A few stops. One smart trip.</h3>
