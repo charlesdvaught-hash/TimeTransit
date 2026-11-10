@@ -3,6 +3,7 @@ import {
   mergeObservations,
   observation,
   statistics,
+  scheduledDate,
   type Observation,
 } from "./reliability";
 import type { Leg } from "./core";
@@ -33,6 +34,35 @@ function sample(
   )!;
 }
 describe("local reliability", () => {
+  it("retains recurring trips across local service dates while deduping each day's updates", () => {
+    const leg = { ...base, from: { ...base.from, tz: "America/Los_Angeles" } };
+    const first = observation(leg, "feed", "departure", base.startTime)!;
+    const tomorrow = { ...leg, scheduledStartTime: "2026-11-11T01:00:00Z" };
+    const next = observation(
+      tomorrow,
+      "feed",
+      "departure",
+      tomorrow.scheduledStartTime,
+    )!;
+    expect(first.serviceDate).toBe("2026-11-09");
+    expect(next.serviceDate).toBe("2026-11-10");
+    const gps = observation(leg, "gps", "departure", "2026-11-10T01:02:00Z")!;
+    const records = mergeObservations([first, next], [first, next, gps]);
+    expect(records).toHaveLength(3);
+    expect(statistics(records)).toMatchObject({ n: 2, median: 120 });
+    const legacy = { ...first, serviceDate: undefined };
+    expect(mergeObservations([legacy], [first])).toHaveLength(1);
+  });
+  it("uses the stop timezone rather than the browser timezone or the UTC date", () => {
+    expect(scheduledDate("2026-11-10T01:00:00Z", "America/Los_Angeles")).toBe(
+      "2026-11-09",
+    );
+    expect(scheduledDate("2026-11-10T23:00:00Z", "Asia/Tokyo")).toBe(
+      "2026-11-11",
+    );
+    expect(scheduledDate("2026-11-09T17:00:00-08:00")).toBe("2026-11-09");
+    expect(scheduledDate("2026-11-10T01:00:00Z", "invalid")).toBe("2026-11-10");
+  });
   it("handles empty data and low sample sizes without flags", () => {
     expect(statistics([])).toMatchObject({
       n: 0,

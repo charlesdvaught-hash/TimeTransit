@@ -5,6 +5,7 @@ export type Place = {
   lon: number;
   address?: string;
   stopId?: string;
+  tz?: string;
 };
 export type Leg = {
   mode: string;

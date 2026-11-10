@@ -8,6 +8,7 @@ export type Observation = {
   stopName: string;
   tripId: string;
   scheduledTime: string;
+  serviceDate?: string;
   actualTime: string;
   delay: number;
   source: "feed" | "gps";
@@ -19,6 +20,24 @@ export function routeKey(leg: Leg) {
   return leg.agencyId && leg.routeId
     ? JSON.stringify([leg.agencyId, leg.routeId])
     : undefined;
+}
+export function scheduledDate(time: string, timeZone?: string) {
+  if (timeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).formatToParts(new Date(time));
+      return ["year", "month", "day"]
+        .map((type) => parts.find((p) => p.type === type)!.value)
+        .join("-");
+    } catch {
+      /* Use the timestamp's own date if timezone metadata is unavailable. */
+    }
+  }
+  return time.slice(0, 10);
 }
 export function observation(
   leg: Leg,
@@ -50,6 +69,7 @@ export function observation(
     stopName: stop.name,
     tripId: leg.tripId,
     scheduledTime,
+    serviceDate: scheduledDate(scheduledTime, stop.tz),
     actualTime,
     delay: (Date.parse(actualTime) - Date.parse(scheduledTime)) / 1000,
     source,
@@ -59,10 +79,33 @@ export function observation(
   };
 }
 export function observationId(o: Observation) {
-  return JSON.stringify([o.tripId, o.stopId, o.source, o.simulated]);
+  return JSON.stringify([
+    o.tripId,
+    o.stopId,
+    o.serviceDate || scheduledDate(o.scheduledTime),
+    o.source,
+    o.simulated,
+  ]);
 }
 export function mergeObservations(old: Observation[], incoming: Observation[]) {
-  const entries = new Map(old.map((o) => [observationId(o), o]));
+  const entries = new Map(
+    old.map((o) => {
+      const replacement =
+        !o.serviceDate &&
+        incoming.find(
+          (item) =>
+            item.tripId === o.tripId &&
+            item.stopId === o.stopId &&
+            item.source === o.source &&
+            item.simulated === o.simulated &&
+            Date.parse(item.scheduledTime) === Date.parse(o.scheduledTime),
+        );
+      const upgraded = replacement
+        ? { ...o, serviceDate: replacement.serviceDate }
+        : o;
+      return [observationId(upgraded), upgraded];
+    }),
+  );
   for (const item of incoming) entries.set(observationId(item), item);
   return [...entries.values()]
     .sort((a, b) => a.timestamp - b.timestamp)
@@ -71,7 +114,11 @@ export function mergeObservations(old: Observation[], incoming: Observation[]) {
 export function statistics(observations: Observation[]) {
   const distinct = new Map<string, Observation>();
   for (const o of observations.filter((o) => o.event === "departure")) {
-    const key = JSON.stringify([o.tripId, o.stopId]);
+    const key = JSON.stringify([
+      o.tripId,
+      o.stopId,
+      o.serviceDate || scheduledDate(o.scheduledTime),
+    ]);
     if (!distinct.has(key) || o.source === "gps") distinct.set(key, o);
   }
   const samples = [...distinct.values()].sort((a, b) => a.delay - b.delay);

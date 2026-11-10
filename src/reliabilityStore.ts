@@ -23,6 +23,9 @@ function valid(value: unknown): value is Observation[] {
         Number.isFinite(o.timestamp) &&
         Number.isFinite(Date.parse(o.scheduledTime)) &&
         Number.isFinite(Date.parse(o.actualTime)) &&
+        (o.serviceDate === undefined ||
+          (typeof o.serviceDate === "string" &&
+            /^\d{4}-\d{2}-\d{2}$/.test(o.serviceDate))) &&
         ["gps", "feed"].includes(o.source) &&
         ["departure", "arrival"].includes(o.event) &&
         typeof o.simulated === "boolean",
