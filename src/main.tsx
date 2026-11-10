@@ -23,9 +23,9 @@ function App() {
         </a>
         <div className="top-meta">
           <span className="live-dot" />
-          <span className="provider-name">
+          <span className="provider-name" title={providers.join(" + ")}>
             {providers.length
-              ? providers.slice(0, 2).join(" + ")
+              ? providers.join(" + ")
               : "Discovering local transit"}
           </span>
           <span className="divider" />

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type * as maplibregl from "maplibre-gl";
 import {
-  chicago,
   distance,
   rank,
   optimize,
@@ -12,11 +11,20 @@ import {
 } from "./core";
 import { search, plan, nearby } from "./api";
 import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
+import {
+  loadOrigin,
+  loadPreferences,
+  saveOrigin,
+  savePreferences,
+  validPreferences,
+  type Preferences,
+} from "./preferences";
 export function useTimeTransit() {
   const map = useRef<maplibregl.Map | null>(null),
     exploreAbort = useRef<AbortController | null>(null),
     tripAbort = useRef<AbortController | null>(null);
-  const [origin, setOrigin] = useState(chicago),
+  const [origin, setOrigin] = useState(loadOrigin()),
+    [preferences, updatePreferences] = useState(loadPreferences()),
     [query, setQuery] = useState(""),
     [results, setResults] = useState<Result[]>([]),
     [selected, setSelected] = useState<Result | null>(null),
@@ -62,12 +70,22 @@ export function useTimeTransit() {
     exploreAbort.current?.abort();
     setExploreBusy(false);
     setOrigin(p);
+    saveOrigin(p);
     setResults([]);
     setSelected(null);
     setChain(null);
     setProviders([]);
     setPicking(false);
     map.current?.flyTo({ center: [p.lon, p.lat], zoom: 13 });
+  }
+  function setPreferences(p: Preferences) {
+    if (!validPreferences(p)) return;
+    setDeparture(departure);
+    updatePreferences(p);
+    savePreferences(p);
+  }
+  function recordProviders(names: string[]) {
+    setProviders((previous) => [...new Set([...previous, ...names])]);
   }
   function locate() {
     navigator.geolocation
@@ -81,7 +99,7 @@ export function useTimeTransit() {
             }),
           () =>
             setError(
-              "Location unavailable. Using Chicago — search an address or pick on the map.",
+              "Location unavailable. Keeping the current origin — search an address or pick on the map.",
             ),
         )
       : setError("Geolocation is not supported.");
@@ -128,7 +146,14 @@ export function useTimeTransit() {
             const i = index++,
               p = candidates[i];
             try {
-              const trip = await plan(origin, p, start, c.signal);
+              const trip = await plan(
+                origin,
+                p,
+                start,
+                c.signal,
+                preferences,
+                recordProviders,
+              );
               found.push({
                 place: p,
                 trip,
@@ -191,7 +216,8 @@ export function useTimeTransit() {
       const resolved = await resolveTripCandidates(
         stops,
         (query) => search(query, origin, c.signal),
-        (place) => plan(origin, place, start, c.signal),
+        (place) =>
+          plan(origin, place, start, c.signal, preferences, recordProviders),
         c.signal,
       );
       const samples = results.filter((r) => r.trip.duration > 0);
@@ -212,7 +238,7 @@ export function useTimeTransit() {
         resolved,
         start,
         back,
-        (a, b, t) => plan(a, b, t, c.signal),
+        (a, b, t) => plan(a, b, t, c.signal, preferences, recordProviders),
         speed,
       );
       if (!c.signal.aborted) {
@@ -228,6 +254,8 @@ export function useTimeTransit() {
   const total = chain?.duration || selected?.trip.duration;
 
   return {
+    preferences,
+    setPreferences,
     origin,
     setOrigin,
     query,

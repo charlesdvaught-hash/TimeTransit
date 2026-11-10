@@ -115,13 +115,17 @@ export function MultiStopPlanner({
               <p>
                 {minutes(v.trip.duration)} min travel · {v.stop.dwell} min stay
               </p>
-              <RouteChips trip={v.trip} />
+              <RouteChips trip={v.trip} preferences={controller.preferences} />
             </div>
           ))}
           {chain.returnTrip && (
             <div>
               <small>{time(chain.returnTrip.endTime)}</small>
               <h3>Back at your start</h3>
+              <RouteChips
+                trip={chain.returnTrip}
+                preferences={controller.preferences}
+              />
             </div>
           )}
         </div>

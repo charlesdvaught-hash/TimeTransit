@@ -1,7 +1,8 @@
 import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { useEffect, useRef } from "react";
-import { chicago, decode } from "./core";
+import { decode } from "./core";
+import { hasSavedOrigin } from "./preferences";
 import type { TransitController } from "./useTimeTransit";
 maplibregl.setWorkerUrl(workerUrl);
 export function MapLayer({ controller }: { controller: TransitController }) {
@@ -25,7 +26,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     const m = new maplibregl.Map({
       container: mapNode.current!,
       style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
-      center: [chicago.lon, chicago.lat],
+      center: [origin.lon, origin.lat],
       zoom: 12.8,
       pitch: 20,
       attributionControl: { compact: true },
@@ -47,7 +48,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     m.on("error", (e) => {
       if (e.error?.message) setError(`Map: ${e.error.message}`);
     });
-    locate();
+    if (!hasSavedOrigin()) locate();
     return () => m.remove();
   }, []);
   const trips = chain

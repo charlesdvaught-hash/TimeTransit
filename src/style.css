@@ -526,6 +526,129 @@ footer .live-dot {
   justify-content: center;
   cursor: default;
 }
+.utility-panel {
+  flex-shrink: 0;
+  padding: 12px;
+  border: 1px solid #ffffff14;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  background: #17233399;
+}
+.utility-panel summary {
+  cursor: pointer;
+  color: #a7c7ed;
+}
+.utility-panel summary > span {
+  float: right;
+  color: #7d98b8;
+  font-size: 9px;
+}
+.utility-panel label {
+  display: block;
+  margin: 12px 0;
+  color: #a9bbce;
+  line-height: 1.8;
+}
+.utility-panel input[type="range"] {
+  display: block;
+  width: 100%;
+  accent-color: #388eff;
+}
+.utility-panel select,
+.simulation-controls select,
+.simulation-controls input {
+  background: #1c3046;
+  color: #e2edfa;
+  border: 1px solid #4672a0;
+  padding: 7px;
+  border-radius: 5px;
+  max-width: 100%;
+}
+.utility-panel p,
+.simulation-controls p {
+  color: #92a8bf;
+  font-size: 10px;
+  line-height: 1.6;
+  margin: 10px 0;
+}
+.reliability-route {
+  padding: 12px 0;
+  border-top: 1px solid #ffffff12;
+}
+.reliability-route > strong {
+  display: block;
+  margin-bottom: 8px;
+}
+.stop-stat {
+  margin: 12px 0;
+  padding-left: 8px;
+  border-left: 1px solid #4070a1;
+}
+.stop-stat > strong {
+  display: block;
+  margin-bottom: 5px;
+}
+.reliability-badge {
+  font-size: 8px;
+  font-weight: 500;
+  color: #8cc3ff;
+  margin-left: 5px;
+}
+.reliability-badge.danger,
+.route-chips > .walk-warning {
+  color: #ffb19b;
+}
+.hud {
+  flex-wrap: wrap;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+.trip-tracker {
+  flex-basis: 100%;
+  border-top: 1px solid #ffffff16;
+  padding-top: 10px;
+  font-size: 11px;
+}
+.trip-tracker > div {
+  display: flex;
+  gap: 12px;
+}
+.tracking-button,
+.simulation-controls button {
+  padding: 8px 10px;
+  border: 1px solid #3786d8;
+  border-radius: 6px;
+  background: #1c4069;
+  color: #c9e4ff;
+  font-size: 10px;
+}
+.tracking-status {
+  color: #8dc4ff;
+  margin: 10px 0;
+  line-height: 1.6;
+}
+.trip-tracker > small {
+  display: block;
+  color: #859bb3;
+  font-size: 9px;
+  line-height: 1.6;
+  margin-top: 9px;
+}
+.simulation-controls {
+  padding: 8px 0;
+}
+.simulation-controls label,
+.simulation-controls select {
+  display: block;
+  margin: 8px 0;
+}
+.simulation-controls button {
+  margin: 4px 6px 4px 0;
+}
+.top-meta .provider-name {
+  max-width: 520px;
+}
 .maplibregl-ctrl-top-right {
   top: 140px;
   right: 22px;
@@ -535,6 +658,7 @@ footer .live-dot {
 }
 .hud {
   position: fixed;
+  width: min(500px, calc(100vw - 500px));
   bottom: 32px;
   left: calc(50% + 100px);
   transform: translateX(-25%);
@@ -831,6 +955,8 @@ button:hover {
     font-size: 8px;
   }
   .hud {
+    width: auto;
+    max-height: calc(46vh - 85px);
     bottom: calc(54vh + 12px);
     left: 12px;
     right: 12px;

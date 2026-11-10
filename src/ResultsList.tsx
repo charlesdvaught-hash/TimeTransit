@@ -101,7 +101,10 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                   {r.distance.toFixed(1)} km away · Arrive{" "}
                   {time(r.trip.endTime)}
                 </p>
-                <RouteChips trip={r.trip} />
+                <RouteChips
+                  trip={r.trip}
+                  preferences={controller.preferences}
+                />
                 {i + 1 !== r.distanceRank && (
                   <small className="ranking">
                     #{i + 1} by time · #{r.distanceRank} by distance

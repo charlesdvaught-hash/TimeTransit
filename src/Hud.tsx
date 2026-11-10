@@ -1,9 +1,16 @@
 import { Navigation } from "lucide-react";
 import { minutes, time } from "./display";
 import type { TransitController } from "./useTimeTransit";
+import { TripTracker } from "./TripTracker";
 
 export function Hud({ controller }: { controller: TransitController }) {
   const { selected, chain, total } = controller;
+  const legs = chain
+    ? [
+        ...chain.visits.flatMap((v) => v.trip?.legs || []),
+        ...(chain.returnTrip?.legs || []),
+      ]
+    : selected?.trip.legs || [];
   return (
     <>
       {" "}
@@ -31,6 +38,7 @@ export function Hud({ controller }: { controller: TransitController }) {
                 : `Arrival ${time(selected!.trip.endTime)}`}
             </span>
           </div>
+          <TripTracker legs={legs} />
         </div>
       ) : (
         <div className="map-tip">

@@ -6,7 +6,9 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { search } from "./api";
+import { searchOrigin } from "./api";
+import { PreferencesPanel } from "./PreferencesPanel";
+import { ReliabilityPanel } from "./ReliabilityPanel";
 import { minutes, time, transfers } from "./display";
 import { MultiStopPlanner } from "./MultiStopPlanner";
 import { ResultsList } from "./ResultsList";
@@ -68,7 +70,7 @@ export function Panel({ controller }: { controller: TransitController }) {
         onSubmit={async (e) => {
           e.preventDefault();
           try {
-            setOriginOptions(await search(originSearch, origin));
+            setOriginOptions(await searchOrigin(originSearch, origin));
           } catch (e) {
             setError((e as Error).message);
           }
@@ -141,6 +143,8 @@ export function Panel({ controller }: { controller: TransitController }) {
           />
         )}
       </div>
+      <PreferencesPanel controller={controller} />
+      <ReliabilityPanel />
       {tab === "explore" ? (
         <ResultsList controller={controller} />
       ) : (
