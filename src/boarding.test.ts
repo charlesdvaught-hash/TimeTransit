@@ -62,7 +62,7 @@ describe("boarding estimates", () => {
     let state = initialBoarding();
     for (const fix of simulationTrace(testLeg, -86400))
       state = updateBoarding(state, fix, testLeg);
-    expect(state.phase).toBe("waiting");
+    expect(state.phase).toBe("approaching");
     expect(state.departure).toBeUndefined();
     expect(state.arrival).toBeUndefined();
   });
@@ -71,7 +71,7 @@ describe("boarding estimates", () => {
       let state = initialBoarding();
       for (const fix of simulationTrace(testLeg, delay).slice(0, 4))
         state = updateBoarding(state, fix, testLeg);
-      expect(state.phase).toBe("waiting");
+      expect(state.phase).toBe(delay === 3601 ? "waiting" : "approaching");
       expect(state.departure).toBeUndefined();
     }
     let state = initialBoarding();
@@ -80,15 +80,21 @@ describe("boarding estimates", () => {
         ...testLeg,
         scheduledStartTime: undefined,
       });
-    expect(state.phase).toBe("waiting");
+    expect(state.phase).toBe("approaching");
     expect(state.departure).toBeUndefined();
   });
-  it("permits the early boundary and rejects arrival outside its scheduled window", () => {
+  it("permits waiting at the early boundary and rejects arrival outside its scheduled window", () => {
     let state = initialBoarding();
-    for (const fix of simulationTrace(testLeg, -900))
+    state = updateBoarding(
+      state,
+      { ...testLeg.from, t: start - 900000, accuracy: 5, speed: 0 },
+      testLeg,
+    );
+    expect(state.phase).toBe("waiting");
+    for (const fix of simulationTrace(testLeg, -880))
       state = updateBoarding(state, fix, testLeg);
     expect(state.phase).toBe("alighted");
-    expect(state.departure).toBe(start - 900000);
+    expect(state.departure).toBe(start - 880000);
     state = initialBoarding();
     for (const fix of simulationTrace(testLeg, 0).slice(0, 4))
       state = updateBoarding(state, fix, testLeg);
@@ -102,6 +108,38 @@ describe("boarding estimates", () => {
     expect(state.phase).toBe("boarded");
     expect(state.arrival).toBeUndefined();
     expect(state.stoppedSince).toBeUndefined();
+  });
+  it("does not board after out-of-window fixes away from the stop followed by in-window corridor movement", () => {
+    let state = initialBoarding();
+    const fixes: Fix[] = [
+      {
+        ...testLeg.from,
+        lon: testLeg.from.lon + 0.005,
+        t: start - 920000,
+        accuracy: 5,
+        speed: 10,
+      },
+      {
+        ...testLeg.from,
+        lon: testLeg.from.lon + 0.006,
+        t: start - 910000,
+        accuracy: 5,
+        speed: 10,
+      },
+      ...Array.from({ length: 5 }, (_, i) => ({
+        ...testLeg.from,
+        lon: testLeg.from.lon + 0.007 + i * 0.001,
+        t: start - 900000 + i * 10000,
+        accuracy: 5,
+        speed: 10,
+      })),
+    ];
+    for (const fix of fixes) {
+      state = updateBoarding(state, fix, testLeg);
+      expect(state.phase).toBe("approaching");
+      expect(state.departure).toBeUndefined();
+      expect(state.movingSince).toBeUndefined();
+    }
   });
   for (const [label, delay] of [
     ["on time", 0],

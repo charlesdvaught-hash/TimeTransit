@@ -81,7 +81,6 @@ export function updateBoarding(
       ? { ...next, stoppedSince: undefined, arrival: undefined }
       : {
           ...next,
-          phase: "waiting",
           movingSince: undefined,
           departure: undefined,
         };
