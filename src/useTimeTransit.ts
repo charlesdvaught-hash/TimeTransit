@@ -11,6 +11,7 @@ import {
   type TripChain,
 } from "./core";
 import { search, plan, nearby } from "./api";
+import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
 export function useTimeTransit() {
   const map = useRef<maplibregl.Map | null>(null),
     abort = useRef<AbortController | null>(null);
@@ -24,13 +25,30 @@ export function useTimeTransit() {
     [providers, setProviders] = useState<string[]>([]),
     [tab, setTab] = useState("explore"),
     [picking, setPicking] = useState(false),
-    [departure, setDeparture] = useState(""),
-    [stops, setStops] = useState<Stop[]>([]),
-    [back, setBack] = useState(true),
+    [departure, updateDeparture] = useState(""),
+    [stops, updateStops] = useState<Stop[]>([]),
+    [back, updateBack] = useState(true),
     [chain, setChain] = useState<TripChain | null>(null),
     [now, setNow] = useState(new Date()),
     [originSearch, setOriginSearch] = useState(""),
     [originOptions, setOriginOptions] = useState<Place[]>([]);
+  function invalidateTrip() {
+    abort.current?.abort();
+    setBusy(false);
+    setChain(null);
+  }
+  function setStops(value: Stop[]) {
+    invalidateTrip();
+    updateStops(value);
+  }
+  function setBack(value: boolean) {
+    invalidateTrip();
+    updateBack(value);
+  }
+  function setDeparture(value: string) {
+    invalidateTrip();
+    updateDeparture(value);
+  }
   function changeOrigin(p: Place) {
     abort.current?.abort();
     setOrigin(p);
@@ -75,6 +93,7 @@ export function useTimeTransit() {
   }, [origin]);
   async function run(term: string) {
     if (!term.trim()) return;
+    const start = departureSnapshot(departure);
     abort.current?.abort();
     const c = new AbortController();
     abort.current = c;
@@ -97,12 +116,7 @@ export function useTimeTransit() {
             const i = index++,
               p = candidates[i];
             try {
-              const trip = await plan(
-                origin,
-                p,
-                departure ? new Date(departure) : new Date(),
-                c.signal,
-              );
+              const trip = await plan(origin, p, start, c.signal);
               found.push({
                 place: p,
                 trip,
@@ -160,29 +174,13 @@ export function useTimeTransit() {
     setError("");
     setChain(null);
     try {
-      const start = departure ? new Date(departure) : new Date();
-      const resolved: Stop[] = [];
-      const specificIds = new Set(
-        stops.flatMap((stop) => stop.candidates.map((place) => place.id)),
+      const start = departureSnapshot(departure);
+      const resolved = await resolveTripCandidates(
+        stops,
+        (query) => search(query, origin, c.signal),
+        (place) => plan(origin, place, start, c.signal),
+        c.signal,
       );
-      for (const s of stops) {
-        if (s.candidates.length) {
-          resolved.push(s);
-          continue;
-        }
-        const candidates = (await search(s.label, origin, c.signal)).filter(
-          (place) => !specificIds.has(place.id),
-        );
-        const timed = [];
-        for (const p of candidates.slice(0, 6)) {
-          const trip = await plan(origin, p, start, c.signal);
-          timed.push({ p, t: trip.duration });
-        }
-        resolved.push({
-          ...s,
-          candidates: timed.sort((a, b) => a.t - b.t).map((x) => x.p),
-        });
-      }
       const samples = results.filter((r) => r.trip.duration > 0);
       const speed = samples.length
         ? Math.max(

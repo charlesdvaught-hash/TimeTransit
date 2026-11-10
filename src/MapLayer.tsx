@@ -141,17 +141,20 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       ? chain.visits.map((v) => v.place)
       : results.map((r) => r.place)
     ).forEach((p, i) => {
-      const el = document.createElement("button");
-      el.className = "map-pin" + (selected?.place.id === p.id ? " active" : "");
+      const el = document.createElement(chain ? "span" : "button");
+      el.className =
+        "map-pin" +
+        (chain ? " trip-pin" : selected?.place.id === p.id ? " active" : "");
       el.textContent = String(i + 1);
       el.title = p.name;
-      el.onclick = () => {
-        const r = results.find((r) => r.place.id === p.id);
-        if (r) {
-          setSelected(r);
-          setChain(null);
-        }
-      };
+      if (!chain)
+        el.onclick = () => {
+          const r = results.find((r) => r.place.id === p.id);
+          if (r) {
+            setSelected(r);
+            setChain(null);
+          }
+        };
       markers.push(
         new maplibregl.Marker({ element: el })
           .setLngLat([p.lon, p.lat])

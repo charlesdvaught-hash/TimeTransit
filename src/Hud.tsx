@@ -3,7 +3,7 @@ import { minutes, time } from "./display";
 import type { TransitController } from "./useTimeTransit";
 
 export function Hud({ controller }: { controller: TransitController }) {
-  const { selected, back, chain, total } = controller;
+  const { selected, chain, total } = controller;
   return (
     <>
       {" "}
@@ -16,7 +16,7 @@ export function Hud({ controller }: { controller: TransitController }) {
             <small>{chain ? "OPTIMIZED TRIP" : "FASTEST JOURNEY"}</small>
             <strong>
               {chain
-                ? `${chain.visits.length} stops${back ? " · round trip" : ""}`
+                ? `${chain.visits.length} stops${chain.returnTrip ? " · round trip" : ""}`
                 : selected?.place.name}
             </strong>
           </div>

@@ -44,21 +44,25 @@ async function json(url: string, signal?: AbortSignal): Promise<any> {
     queue.shift()?.();
   }
 }
-export async function search(
-  query: string,
-  origin: Place,
-  signal?: AbortSignal,
-): Promise<Place[]> {
+export function searchParams(query: string, origin: Place): URLSearchParams {
   const tag = categories[query];
   const dx = 0.24 / Math.cos((origin.lat * Math.PI) / 180);
   const params = new URLSearchParams({
-    q: tag ? (query === "Coffee" ? "cafe" : query) : query,
     lat: String(origin.lat),
     lon: String(origin.lon),
     limit: "50",
     bbox: `${origin.lon - dx},${origin.lat - 0.18},${origin.lon + dx},${origin.lat + 0.18}`,
   });
-  if (tag) params.set("osm_tag", tag);
+  if (tag) params.set("include", `osm.${tag.replace(":", ".")}`);
+  else params.set("q", query);
+  return params;
+}
+export async function search(
+  query: string,
+  origin: Place,
+  signal?: AbortSignal,
+): Promise<Place[]> {
+  const params = searchParams(query, origin);
   const data = await json(`https://photon.komoot.io/api/?${params}`, signal);
   return data.features
     .map((f: any) => ({

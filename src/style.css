@@ -520,6 +520,12 @@ footer .live-dot {
   border: 2px solid white;
   transform: scale(1.15);
 }
+.trip-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
 .maplibregl-ctrl-top-right {
   top: 140px;
   right: 22px;
