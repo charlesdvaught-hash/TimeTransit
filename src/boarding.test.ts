@@ -58,6 +58,51 @@ export const testLeg: Leg = {
   },
 };
 describe("boarding estimates", () => {
+  it("does not board a future itinerary while riding the corridor today", () => {
+    let state = initialBoarding();
+    for (const fix of simulationTrace(testLeg, -86400))
+      state = updateBoarding(state, fix, testLeg);
+    expect(state.phase).toBe("waiting");
+    expect(state.departure).toBeUndefined();
+    expect(state.arrival).toBeUndefined();
+  });
+  it("rejects excessively early, late, or unscheduled boarding", () => {
+    for (const delay of [-1200, 3601]) {
+      let state = initialBoarding();
+      for (const fix of simulationTrace(testLeg, delay).slice(0, 4))
+        state = updateBoarding(state, fix, testLeg);
+      expect(state.phase).toBe("waiting");
+      expect(state.departure).toBeUndefined();
+    }
+    let state = initialBoarding();
+    for (const fix of simulationTrace(testLeg, 0))
+      state = updateBoarding(state, fix, {
+        ...testLeg,
+        scheduledStartTime: undefined,
+      });
+    expect(state.phase).toBe("waiting");
+    expect(state.departure).toBeUndefined();
+  });
+  it("permits the early boundary and rejects arrival outside its scheduled window", () => {
+    let state = initialBoarding();
+    for (const fix of simulationTrace(testLeg, -900))
+      state = updateBoarding(state, fix, testLeg);
+    expect(state.phase).toBe("alighted");
+    expect(state.departure).toBe(start - 900000);
+    state = initialBoarding();
+    for (const fix of simulationTrace(testLeg, 0).slice(0, 4))
+      state = updateBoarding(state, fix, testLeg);
+    expect(state.phase).toBe("boarded");
+    for (const t of [start + 86400000, start + 86410000])
+      state = updateBoarding(
+        state,
+        { ...testLeg.to, t, accuracy: 5, speed: 0 },
+        testLeg,
+      );
+    expect(state.phase).toBe("boarded");
+    expect(state.arrival).toBeUndefined();
+    expect(state.stoppedSince).toBeUndefined();
+  });
   for (const [label, delay] of [
     ["on time", 0],
     ["late", 240],

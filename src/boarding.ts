@@ -67,6 +67,25 @@ export function updateBoarding(
   )
     return state;
   const next = { ...state, previous: fix };
+  const scheduled = Date.parse(
+    (state.phase === "boarded"
+      ? leg.scheduledEndTime
+      : leg.scheduledStartTime) || "",
+  );
+  const inWindow =
+    Number.isFinite(scheduled) &&
+    fix.t >= scheduled - 15 * 60000 &&
+    fix.t <= scheduled + 60 * 60000;
+  if (!inWindow) {
+    return state.phase === "boarded"
+      ? { ...next, stoppedSince: undefined, arrival: undefined }
+      : {
+          ...next,
+          phase: "waiting",
+          movingSince: undefined,
+          departure: undefined,
+        };
+  }
   const nearStart =
     distance(fix, leg.from) * 1000 <= 75 + Math.min(25, fix.accuracy);
   const nearExit =
