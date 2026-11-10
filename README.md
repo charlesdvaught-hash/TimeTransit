@@ -17,7 +17,7 @@ Opt-in real API check: `LIVE=1 npx vitest run src/live.test.ts` (Git Bash; use n
 
 ## Explore
 
-Allow location access, search an origin address, or use the pin button then click the map. Chicago is the fallback. Choose a category or business name and optionally a departure date/time. Candidates are restricted to approximately 20 km, deduplicated, distance-prefiltered, and capped at 20. Each result uses the fastest Transitous itinerary including direct walking. Times include walking, waiting, rides, and transfers; arrival times use your browser timezone. Select a result for its colored route and expandable leg details. Route geometry respects MOTIS's encoded-polyline precision field (currently often 7).
+Allow location access, search an origin address, or use the pin button then click the map. Chicago is the fallback. Choose a category or business name and optionally a departure date/time. Candidates are restricted to approximately 20 km, deduplicated, distance-prefiltered, and capped at 20. Each result uses the fastest Transitous itinerary including direct walking. Times include walking, waiting, rides, and transfers; arrival times use your browser timezone. Select a result for its colored route and expandable leg details. Route geometry respects MOTIS's encoded-polyline precision field (6 for the v2 plans used here).
 
 ## Walking preferences and origin
 
