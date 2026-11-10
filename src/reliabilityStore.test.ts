@@ -34,7 +34,7 @@ it("persists realtime departures, dedupes updates, skips missing metadata, and c
   ] as Itinerary[];
   logFeed(trips);
   logFeed(trips);
-  const read = () => JSON.parse(saved.get("timetransit.reliability")!);
+  const read = () => JSON.parse(saved.get("timetransit.reliability.v2")!);
   expect(read()).toHaveLength(1);
   expect(read()[0]).toMatchObject({
     source: "feed",
@@ -48,3 +48,46 @@ it("persists realtime departures, dedupes updates, skips missing metadata, and c
   clearReliability();
   expect(read()).toEqual([]);
 });
+it.each([
+  ["timetransit.reliability", "2026-11-09", 1],
+  ["timetransit.reliability.v2", undefined, 1],
+  ["timetransit.reliability.v2", "2026-11-09", 2],
+])(
+  "loads only dated v2 observations: %s, %s",
+  async (key, serviceDate, count) => {
+    const record = {
+      routeKey: "route",
+      routeName: "38",
+      agency: "OCTA",
+      color: "00aff2",
+      stopId: "stop",
+      stopName: "Board",
+      tripId: "trip",
+      scheduledTime: "2026-11-10T01:00:00Z",
+      actualTime: "2026-11-10T01:00:00Z",
+      serviceDate: "2026-11-09",
+      delay: 0,
+      source: "feed" as const,
+      event: "departure" as const,
+      timestamp: 1,
+      simulated: false,
+    };
+    const saved = new Map([
+      [key, JSON.stringify([{ ...record, serviceDate }])],
+    ]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => saved.get(key) || null,
+      setItem: (key: string, value: string) => saved.set(key, value),
+    });
+    vi.resetModules();
+    const store = await import("./reliabilityStore");
+    store.addObservations([{ ...record, tripId: "new-trip" }]);
+    const loaded = JSON.parse(saved.get("timetransit.reliability.v2")!);
+    expect(loaded).toHaveLength(count);
+    expect(
+      loaded.every(
+        (o: { serviceDate?: string }) => o.serviceDate === "2026-11-09",
+      ),
+    ).toBe(true);
+  },
+);

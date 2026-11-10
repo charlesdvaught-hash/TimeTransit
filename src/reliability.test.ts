@@ -50,8 +50,6 @@ describe("local reliability", () => {
     const records = mergeObservations([first, next], [first, next, gps]);
     expect(records).toHaveLength(3);
     expect(statistics(records)).toMatchObject({ n: 2, median: 120 });
-    const legacy = { ...first, serviceDate: undefined };
-    expect(mergeObservations([legacy], [first])).toHaveLength(1);
   });
   it("uses the stop timezone rather than the browser timezone or the UTC date", () => {
     expect(scheduledDate("2026-11-10T01:00:00Z", "America/Los_Angeles")).toBe(
