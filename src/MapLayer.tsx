@@ -43,6 +43,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     locate,
     liveBus,
     hover,
+    busy,
   } = controller;
   const mapNode = useRef<HTMLDivElement>(null);
   const pickRef = useRef(picking);
@@ -177,163 +178,163 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       // stream in, which would drop every call.
       if (!ambientFC || !m.getStyle()) return;
       try {
-      for (const id of ambientIds) if (m.getLayer(id)) m.removeLayer(id);
-      if (m.getSource("ambient")) m.removeSource("ambient");
-      if (m.getSource("ambient-arrows")) m.removeSource("ambient-arrows");
-      if (m.getSource("ambient-stops")) m.removeSource("ambient-stops");
-      m.addSource("ambient", { type: "geojson", data: ambientFC });
-      const sat = m.getContainer().classList.contains("satellite");
-      if (stopsFC) {
-        m.addSource("ambient-stops", { type: "geojson", data: stopsFC });
-        m.addLayer({
-          id: "ambient-stops",
-          type: "circle",
-          source: "ambient-stops",
-          minzoom: 12.5,
-          paint: {
-            "circle-radius": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              12.5,
-              1.5,
-              16,
-              4.5,
-            ],
-            "circle-color": sat ? "#ffd98a" : "#8fd0ff",
-            "circle-opacity": 0.9,
-            "circle-stroke-width": 1.4,
-            "circle-stroke-color": sat ? "#10161f" : "#0a1420",
-          },
-        });
-      }
-      if (sat) {
-        m.addLayer({
-          id: "ambient-line",
-          type: "line",
-          source: "ambient",
-          layout: { "line-cap": "round" },
-          paint: {
-            "line-color": "#0a0f16",
-            "line-width": [
-              "interpolate",
-              ["exponential", 1.5],
-              ["zoom"],
-              10,
-              3,
-              15,
-              11,
-            ],
-            "line-opacity": 0.7,
-          },
-        });
-        m.addLayer({
-          id: "ambient-core",
-          type: "line",
-          source: "ambient",
-          layout: { "line-cap": "round" },
-          paint: {
-            "line-color": "#ffdf94",
-            "line-width": [
-              "interpolate",
-              ["exponential", 1.5],
-              ["zoom"],
-              10,
-              1.4,
-              15,
-              5,
-            ],
-            "line-opacity": 0.95,
-          },
-        });
-        m.addSource("ambient-arrows", {
-          type: "geojson",
-          data: advanceArrows(arrows, 0),
-        });
-        if (!m.hasImage("net-arrow")) m.addImage("net-arrow", arrowImage());
-        m.addLayer({
-          id: "ambient-arrows",
-          type: "symbol",
-          source: "ambient-arrows",
-          layout: {
-            "icon-image": "net-arrow",
-            "icon-size": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              10,
-              0.3,
-              15,
-              0.7,
-            ],
-            "icon-rotate": ["get", "rot"],
-            "icon-rotation-alignment": "map",
-            "icon-allow-overlap": true,
-            "icon-ignore-placement": true,
-          },
-          paint: { "icon-opacity": 0.85 },
-        });
-      } else {
-        m.addLayer({
-          id: "ambient-glow",
-          type: "line",
-          source: "ambient",
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: {
-            "line-color": ["get", "c"],
-            "line-width": [
-              "interpolate",
-              ["exponential", 1.5],
-              ["zoom"],
-              10,
-              4,
-              15,
-              20,
-            ],
-            "line-blur": 10,
-            "line-opacity": 0.55,
-          },
-        });
-        m.addLayer({
-          id: "ambient-core",
-          type: "line",
-          source: "ambient",
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: {
-            "line-color": ["get", "c"],
-            "line-width": [
-              "interpolate",
-              ["exponential", 1.5],
-              ["zoom"],
-              10,
-              1.6,
-              15,
-              6,
-            ],
-            "line-opacity": 0.85,
-          },
-        });
-        m.addLayer({
-          id: "ambient-flow",
-          type: "line",
-          source: "ambient",
-          layout: { "line-cap": "round" },
-          paint: {
-            "line-color": "#ffffff",
-            "line-width": [
-              "interpolate",
-              ["exponential", 1.5],
-              ["zoom"],
-              10,
-              1.6,
-              15,
-              5,
-            ],
-            "line-opacity": 0.95,
-            "line-dasharray": FLOW[0],
-          },
-        });
-      }
+        for (const id of ambientIds) if (m.getLayer(id)) m.removeLayer(id);
+        if (m.getSource("ambient")) m.removeSource("ambient");
+        if (m.getSource("ambient-arrows")) m.removeSource("ambient-arrows");
+        if (m.getSource("ambient-stops")) m.removeSource("ambient-stops");
+        m.addSource("ambient", { type: "geojson", data: ambientFC });
+        const sat = m.getContainer().classList.contains("satellite");
+        if (stopsFC) {
+          m.addSource("ambient-stops", { type: "geojson", data: stopsFC });
+          m.addLayer({
+            id: "ambient-stops",
+            type: "circle",
+            source: "ambient-stops",
+            minzoom: 12.5,
+            paint: {
+              "circle-radius": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                12.5,
+                1.5,
+                16,
+                4.5,
+              ],
+              "circle-color": sat ? "#ffd98a" : "#8fd0ff",
+              "circle-opacity": 0.9,
+              "circle-stroke-width": 1.4,
+              "circle-stroke-color": sat ? "#10161f" : "#0a1420",
+            },
+          });
+        }
+        if (sat) {
+          m.addLayer({
+            id: "ambient-line",
+            type: "line",
+            source: "ambient",
+            layout: { "line-cap": "round" },
+            paint: {
+              "line-color": "#0a0f16",
+              "line-width": [
+                "interpolate",
+                ["exponential", 1.5],
+                ["zoom"],
+                10,
+                3,
+                15,
+                11,
+              ],
+              "line-opacity": 0.7,
+            },
+          });
+          m.addLayer({
+            id: "ambient-core",
+            type: "line",
+            source: "ambient",
+            layout: { "line-cap": "round" },
+            paint: {
+              "line-color": "#ffdf94",
+              "line-width": [
+                "interpolate",
+                ["exponential", 1.5],
+                ["zoom"],
+                10,
+                1.4,
+                15,
+                5,
+              ],
+              "line-opacity": 0.95,
+            },
+          });
+          m.addSource("ambient-arrows", {
+            type: "geojson",
+            data: advanceArrows(arrows, 0),
+          });
+          if (!m.hasImage("net-arrow")) m.addImage("net-arrow", arrowImage());
+          m.addLayer({
+            id: "ambient-arrows",
+            type: "symbol",
+            source: "ambient-arrows",
+            layout: {
+              "icon-image": "net-arrow",
+              "icon-size": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                10,
+                0.3,
+                15,
+                0.7,
+              ],
+              "icon-rotate": ["get", "rot"],
+              "icon-rotation-alignment": "map",
+              "icon-allow-overlap": true,
+              "icon-ignore-placement": true,
+            },
+            paint: { "icon-opacity": 0.85 },
+          });
+        } else {
+          m.addLayer({
+            id: "ambient-glow",
+            type: "line",
+            source: "ambient",
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": ["get", "c"],
+              "line-width": [
+                "interpolate",
+                ["exponential", 1.5],
+                ["zoom"],
+                10,
+                4,
+                15,
+                20,
+              ],
+              "line-blur": 10,
+              "line-opacity": 0.55,
+            },
+          });
+          m.addLayer({
+            id: "ambient-core",
+            type: "line",
+            source: "ambient",
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": ["get", "c"],
+              "line-width": [
+                "interpolate",
+                ["exponential", 1.5],
+                ["zoom"],
+                10,
+                1.6,
+                15,
+                6,
+              ],
+              "line-opacity": 0.85,
+            },
+          });
+          m.addLayer({
+            id: "ambient-flow",
+            type: "line",
+            source: "ambient",
+            layout: { "line-cap": "round" },
+            paint: {
+              "line-color": "#ffffff",
+              "line-width": [
+                "interpolate",
+                ["exponential", 1.5],
+                ["zoom"],
+                10,
+                1.6,
+                15,
+                5,
+              ],
+              "line-opacity": 0.95,
+              "line-dasharray": FLOW[0],
+            },
+          });
+        }
       } catch (e) {
         setError(
           `Ambient layer: ${e instanceof Error ? e.message : String(e)}`,
@@ -365,18 +366,18 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     const beat = still
       ? 0
       : setInterval(() => {
-      const now = performance.now(),
-        dt = (now - last) / 1000;
-      last = now;
-      if (m.getLayer("ambient-flow")) {
-        phase = (phase + 1) % FLOW.length;
-        m.setPaintProperty("ambient-flow", "line-dasharray", FLOW[phase]);
-      }
-      if (m.getLayer("ambient-arrows"))
-        (m.getSource("ambient-arrows") as maplibregl.GeoJSONSource)?.setData(
-          advanceArrows(arrows, dt),
-        );
-    }, 90);
+          const now = performance.now(),
+            dt = (now - last) / 1000;
+          last = now;
+          if (m.getLayer("ambient-flow")) {
+            phase = (phase + 1) % FLOW.length;
+            m.setPaintProperty("ambient-flow", "line-dasharray", FLOW[phase]);
+          }
+          if (m.getLayer("ambient-arrows"))
+            (
+              m.getSource("ambient-arrows") as maplibregl.GeoJSONSource
+            )?.setData(advanceArrows(arrows, dt));
+        }, 90);
     return () => {
       clearInterval(beat);
       m.remove();
@@ -631,6 +632,20 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       markers.forEach((x) => x.remove());
     };
   }, [origin, results, selected, trip, chain, basemap, liveBus]);
+  // route-hunt radar ping at origin while a search is running
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !busy) return;
+    const el = document.createElement("div");
+    el.className = "scan-ring";
+    el.appendChild(document.createElement("i"));
+    const marker = new maplibregl.Marker({ element: el })
+      .setLngLat([origin.lon, origin.lat])
+      .addTo(m);
+    return () => {
+      marker.remove();
+    };
+  }, [busy, origin, basemap]);
   // hover preview — suggestion branches or a result + its nearby neighbors
   useEffect(() => {
     const m = map.current;

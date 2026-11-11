@@ -23,12 +23,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { suggest } from "./api";
-import {
-  categories,
-  distance,
-  suggestCategories,
-  type Place,
-} from "./core";
+import { categories, distance, suggestCategories, type Place } from "./core";
 import { mergeSuggestions, nameScore, type Suggestion } from "./suggestions";
 import { tomtomSuggest } from "./tomtom";
 import { loadPlaces, searchPlaces } from "./places";
@@ -46,6 +41,7 @@ const categoryIcons: Record<string, typeof Coffee> = {
 };
 import { minutes, time } from "./display";
 import { RouteChips } from "./RouteChips";
+import { RouteHunt } from "./RouteHunt";
 import type { TransitController } from "./useTimeTransit";
 function segmentAt(value: string, caret: number) {
   const parts = value.split("+");
@@ -139,9 +135,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
             nameScore(segment, p.kind) >= 300 &&
             nameScore(segment, p.kind) > nameScore(segment, p.name),
         );
-        const covered = types.some(
-          (t) => nameScore(segment, t.label) >= 400,
-        );
+        const covered = types.some((t) => nameScore(segment, t.label) >= 400);
         if (kindLed.length >= 2 && !covered)
           types.push({
             id: "type-any",
@@ -417,10 +411,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                     aria-label={`Stop ${i + 1} order: ${stopPins[i] ? `locked ${stopPins[i]}` : "free"}`}
                     onClick={(e) => {
                       e.preventDefault();
-                      setStopPin(
-                        i,
-                        stopPins[i] ? undefined : slotPin,
-                      );
+                      setStopPin(i, stopPins[i] ? undefined : slotPin);
                     }}
                   >
                     {stopPins[i] ? <Lock size={11} /> : <LockOpen size={11} />}
@@ -461,9 +452,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                           >
                             <strong>{p.name}</strong>
                             <small>
-                              {[p.kind, p.address]
-                                .filter(Boolean)
-                                .join(" · ")}
+                              {[p.kind, p.address].filter(Boolean).join(" · ")}
                             </small>
                           </button>
                         ))
@@ -505,15 +494,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
           <Zap size={14} />
         )}
       </div>
-      {busy && (
-        <div className="progress">
-          <i
-            style={{
-              width: `${progress[1] ? (progress[0] / progress[1]) * 100 : 10}%`,
-            }}
-          />
-        </div>
-      )}
+      {busy && <RouteHunt compare={tripBusy} progress={progress} />}
       {chain && chainNote && <p className="chain-note">{chainNote}</p>}
       {chain && (
         <div className="timeline">
@@ -560,10 +541,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                   setHover([
                     r.place,
                     ...results
-                      .filter(
-                        (o) =>
-                          o !== r && distance(o.place, r.place) <= 1,
-                      )
+                      .filter((o) => o !== r && distance(o.place, r.place) <= 1)
                       .map((o) => o.place),
                   ])
                 }
