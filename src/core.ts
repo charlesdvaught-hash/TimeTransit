@@ -5,6 +5,7 @@ export type Place = {
   lat: number;
   lon: number;
   address?: string;
+  kind?: string; // venue type, e.g. "amusement arcade" — powers category-aware ranking
   stopId?: string;
   tz?: string;
 };

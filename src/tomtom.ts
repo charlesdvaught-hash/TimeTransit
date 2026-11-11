@@ -58,12 +58,17 @@ export async function tomtomSuggest(
           address.freeformAddress && address.freeformAddress !== name
             ? address.freeformAddress
             : local;
+        const cls = result?.poi?.classifications?.[0];
+        const kind = String(cls?.names?.[0]?.name ?? cls?.code ?? "")
+          .toLowerCase()
+          .replace(/_/g, " ");
         const place: Place = {
           id: `tomtom-${result.id ?? `${lat},${lon}`}`,
           name,
           lat,
           lon,
           ...(detail ? { address: detail } : {}),
+          ...(kind ? { kind } : {}),
         };
         return distance(origin, place) <= 50 ? [place] : [];
       },

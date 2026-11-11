@@ -7,6 +7,7 @@ export type Suggestion = {
   detail?: string;
   place?: Place; // set only when the name has exactly one location
   places?: Place[]; // every location sharing this name
+  kinds?: string[]; // venue types seen on the grouped places
 };
 
 const filler = new Set(["the", "of", "and", "at", "in", "on", "near", "by"]);
@@ -75,22 +76,46 @@ export function mergeSuggestions(query: string, ...lists: Place[][]) {
     if (!g.some((other) => same(other, place))) g.push(place);
     groups.set(key, g);
   }
-  const merged: Suggestion[] = [...groups.values()].map((places) => ({
-    id: `place-${places[0].id}`,
-    kind: "place",
-    label: places[0].name,
-    detail:
-      places.length > 1
-        ? `${places.length} locations`
-        : places[0].address ||
-          `${places[0].lat.toFixed(3)}, ${places[0].lon.toFixed(3)}`,
-    place: places.length === 1 ? places[0] : undefined,
-    places,
-  }));
-  const scored = merged.map((suggestion) => ({
-    suggestion,
-    score: nameScore(query, suggestion.label),
-  }));
+  const merged: Suggestion[] = [...groups.values()].map((places) => {
+    const kinds = [
+      ...new Set(places.map((p) => p.kind).filter(Boolean)),
+    ] as string[];
+    const where =
+      places[0].address ||
+      `${places[0].lat.toFixed(3)}, ${places[0].lon.toFixed(3)}`;
+    return {
+      id: `place-${places[0].id}`,
+      kind: "place",
+      label: places[0].name,
+      detail:
+        places.length > 1
+          ? `${places.length} locations`
+          : kinds.length
+            ? `${kinds[0]} · ${where}`
+            : where,
+      place: places.length === 1 ? places[0] : undefined,
+      places,
+      kinds,
+    };
+  });
+  const asked = words(query);
+  const scored = merged.map((suggestion) => {
+    // venue type counts like a name signal — "arcade" should surface real
+    // arcades (kind "amusement arcade"), not only names containing "arcade".
+    // full-query type hit gets a bonus so kind matches edge out name-only hits.
+    const kinds = suggestion.kinds ?? [];
+    const typeScore = Math.max(0, ...kinds.map((k) => nameScore(query, k)));
+    const typeHit = kinds.some(
+      (k) => asked.length && asked.every((w) => wordHit(w, words(k))),
+    );
+    return {
+      suggestion,
+      score:
+        nameScore(query, suggestion.label) +
+        typeScore +
+        (typeHit ? 250 : 0),
+    };
+  });
   return scored
     .sort((a, b) => b.score - a.score)
     .map((entry) => entry.suggestion);

@@ -78,6 +78,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
   const [focused, setFocused] = useState(false);
   const [caret, setCaret] = useState(0);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [searching, setSearching] = useState(false);
   const [alts, setAlts] = useState<Suggestion[]>([]);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -91,10 +92,12 @@ export function ResultsList({ controller }: { controller: TransitController }) {
   useEffect(() => {
     if (!focused || segment.length < 2) {
       setSuggestions([]);
+      setSearching(false);
       return;
     }
     const c = new AbortController();
     loadPlaces(); // warm the local POI index while the user types
+    let cap: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
       const types: Suggestion[] = suggestCategories(segment)
         .slice(0, 4)
@@ -104,43 +107,57 @@ export function ResultsList({ controller }: { controller: TransitController }) {
           label,
           detail: "Type of place",
         }));
-      setSuggestions(types);
-      setActive(0);
       const photon: Place[] = [];
       const tomtom: Place[] = [];
-      const publish = () => {
-        if (c.signal.aborted) return;
-        const places = mergeSuggestions(
-          segment,
-          photon,
-          tomtom,
-          searchPlaces(segment, origin),
-        );
+      let local: Place[] = [];
+      let pending = 3;
+      let settled = false;
+      // publish once — when every source has answered (or the cap hits) —
+      // so the list never reshuffles under the cursor
+      const settle = () => {
+        if (settled || --pending > 0 || c.signal.aborted) return;
+        settled = true;
+        const places = mergeSuggestions(segment, photon, tomtom, local);
         const exact =
           places.length > 0 && nameScore(segment, places[0].label) >= 500;
         const list = (
           exact ? [...places, ...types] : [...types, ...places]
         ).slice(0, 10);
         setSuggestions(list);
-        setActive((a) => Math.min(a, list.length - 1));
+        setActive(0);
+        setSearching(false);
       };
-      loadPlaces().then(() => publish()); // re-publish once the index lands
+      setSuggestions(types);
+      setActive(0);
+      setSearching(true);
+      cap = setTimeout(() => {
+        pending = 1;
+        settle();
+      }, 1400);
+      loadPlaces()
+        .then(() => {
+          local = searchPlaces(segment, origin);
+          settle();
+        })
+        .catch(settle);
       suggest(segment, origin, c.signal)
         .then((places) => {
           photon.push(...places);
-          publish();
+          settle();
         })
-        .catch(() => {});
+        .catch(settle);
       tomtomSuggest(segment, origin, c.signal)
         .then((places) => {
           tomtom.push(...places);
-          publish();
+          settle();
         })
-        .catch(() => {});
+        .catch(settle);
     }, 250);
     return () => {
       clearTimeout(timer);
+      if (cap) clearTimeout(cap);
       c.abort();
+      setSearching(false);
     };
   }, [segment, focused, origin]);
   function choose(s: Suggestion) {
@@ -175,7 +192,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
             aria-label="Search destinations"
             aria-autocomplete="list"
             aria-controls="destination-suggestions"
-            aria-expanded={focused && suggestions.length > 0}
+            aria-expanded={focused && (suggestions.length > 0 || searching)}
             aria-activedescendant={
               focused && suggestions.length ? `suggestion-${active}` : undefined
             }
@@ -222,7 +239,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
             <ArrowUpRight size={20} />
           </button>
         </form>
-        {focused && suggestions.length > 0 && (
+        {focused && (suggestions.length > 0 || searching) && (
           <div
             className="suggestions"
             id="destination-suggestions"
@@ -251,6 +268,14 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                 </button>
               );
             })}
+            {searching && (
+              <div className="suggestions-loading" role="status">
+                <i />
+                <i />
+                <i />
+                Finding places…
+              </div>
+            )}
             {suggestions.some((s) => s.place?.id.startsWith("tomtom-")) && (
               <small className="suggestions-credit">Places © TomTom</small>
             )}

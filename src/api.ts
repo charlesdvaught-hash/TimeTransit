@@ -73,6 +73,9 @@ const toPlace = (f: any, fallback: string): Place => ({
   address: [f.properties.housenumber, f.properties.street, f.properties.city]
     .filter(Boolean)
     .join(" "),
+  ...(f.properties.osm_value
+    ? { kind: String(f.properties.osm_value).replace(/_/g, " ") }
+    : {}),
 });
 export async function suggest(
   query: string,

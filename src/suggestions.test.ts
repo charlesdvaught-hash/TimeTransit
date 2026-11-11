@@ -102,6 +102,25 @@ describe("mergeSuggestions", () => {
     expect(merged[0].places).toHaveLength(2);
   });
 
+  it("ranks a venue of the asked type above a same-name non-match", () => {
+    const photon = [
+      {
+        ...place("Arcade Theatre", 33.9, -118.1, "534 S Broadway"),
+        kind: "theatre",
+      },
+    ];
+    const tomtom = [
+      {
+        ...place("Round1", 33.85, -117.95, "1600 S Azusa Ave"),
+        id: "tomtom-1",
+        kind: "amusement arcade",
+      },
+    ];
+    const merged = mergeSuggestions("arcade", photon, tomtom);
+    expect(merged[0].label).toBe("Round1");
+    expect(merged[0].detail).toContain("amusement arcade");
+  });
+
   it("keeps provider order when nothing matches the query", () => {
     const merged = mergeSuggestions("zzz", [
       place("Alpha", 33.8, -117.9),
