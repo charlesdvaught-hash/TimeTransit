@@ -639,6 +639,15 @@ header {
   color: #a8d0ff;
   font-size: 12px;
 }
+/* STAGE-3 */
+.chain-warning {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #e5a4241c;
+  color: #ffd08a;
+  font-size: 12px;
+}
 .trip-stop-name {
   flex: 1;
   min-width: 0;

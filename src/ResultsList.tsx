@@ -74,6 +74,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
     dwells,
     setStopDwell,
     chainNote,
+    chainWarnings, // STAGE-3
     stopPins,
     setStopPin,
     run,
@@ -525,6 +526,13 @@ export function ResultsList({ controller }: { controller: TransitController }) {
           )}
         </div>
       )}
+      {/* STAGE-3: live departures that leave before a planned arrival */}
+      {chain &&
+        chainWarnings.map((w, i) => (
+          <p className="chain-warning" key={i}>
+            {w}
+          </p>
+        ))}
       <div className="results" onMouseLeave={() => setHover([])}>
         {results.map((r, i) => {
           const shown = selected === r && activeTrip ? activeTrip : r.trip;

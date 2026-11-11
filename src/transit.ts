@@ -1,4 +1,4 @@
-import { distance, type Leg } from "./core";
+import { distance, type Leg, type TripChain } from "./core";
 export type LiveDeparture = {
   routeName: string;
   headsign?: string;
@@ -30,7 +30,7 @@ type MergedItinerary = {
   merged_headsign?: string;
   schedule_items: ScheduleItem[];
 };
-type RouteDeparture = {
+export type RouteDeparture = {
   global_stop_id?: string;
   global_route_id?: string;
   route_short_name?: string;
@@ -147,6 +147,20 @@ export function nearestStop(
     .filter((s) => s.meters <= maxMeters)
     .sort((a, b) => a.meters - b.meters)[0]?.stop;
 }
+// STAGE-3: one batched stop_departures call for ≤100 stops (free tier: 5/min)
+export async function stopDepartures(
+  globalStopIds: string[],
+  time: number,
+  signal?: AbortSignal,
+): Promise<RouteDeparture[]> {
+  const ids = [...new Set(globalStopIds)].slice(0, 100);
+  if (!ids.length) return [];
+  const departures = await get(
+    `/v4/public/stop_departures?global_stop_ids=${ids.map(encodeURIComponent).join(",")}&time=${time}&max_num_departures=10&merge_platform_stops=true`,
+    signal,
+  );
+  return (departures.route_departures || []) as RouteDeparture[];
+}
 export async function liveDepartures(
   legs: Leg[],
   signal?: AbortSignal,
@@ -161,11 +175,9 @@ export async function liveDepartures(
         .catch(() => undefined),
     ),
   );
-  const ids = [
-    ...new Set(
-      stops.filter((s): s is TransitStop => !!s).map((s) => s.global_stop_id),
-    ),
-  ].slice(0, 100);
+  const ids = stops
+    .filter((s): s is TransitStop => !!s)
+    .map((s) => s.global_stop_id);
   if (!ids.length) return legs.map(() => undefined);
   const at = Math.floor(
     Math.min(
@@ -174,11 +186,7 @@ export async function liveDepartures(
       1000 -
       180,
   );
-  const departures = await get(
-    `/v4/public/stop_departures?global_stop_ids=${ids.map(encodeURIComponent).join(",")}&time=${at}&max_num_departures=10&merge_platform_stops=true`,
-    signal,
-  );
-  const rows = (departures.route_departures || []) as RouteDeparture[];
+  const rows = await stopDepartures(ids, at, signal); // STAGE-3
   return legs.map((leg, i) => {
     const stop = stops[i];
     if (!stop) return;
@@ -208,6 +216,39 @@ export async function liveDeparture(
   signal?: AbortSignal,
 ): Promise<LiveDeparture | undefined> {
   return (await liveDepartures([leg], signal))[0];
+}
+// STAGE-3: flag multi-stop legs whose live departure leaves before the rider
+// can arrive — lives[] is indexed by chain visit (first boarding leg of each)
+export function transferViolations(
+  chain: TripChain,
+  lives: (LiveDeparture | undefined)[],
+  bufferSec = 120,
+): { visit: number; leg: number; missedBy: number; cancelled?: boolean }[] {
+  const out: {
+    visit: number;
+    leg: number;
+    missedBy: number;
+    cancelled?: boolean;
+  }[] = [];
+  chain.visits.forEach((v, visit) => {
+    const live = lives[visit];
+    if (!live) return;
+    const leg = v.trip.legs.findIndex((l) => l.mode !== "WALK" && l.tripId);
+    if (leg < 0) return;
+    const missedBy = Math.round(
+      (Date.parse(v.trip.legs[leg - 1]?.endTime ?? v.trip.startTime) -
+        Date.parse(live.expectedTime)) /
+        1000,
+    );
+    if (live.cancelled || missedBy > bufferSec)
+      out.push({
+        visit,
+        leg,
+        missedBy: Math.max(0, missedBy),
+        cancelled: live.cancelled || undefined,
+      });
+  });
+  return out;
 }
 
 // Nearby departures for a map tap — nearest stops + soonest buses.
