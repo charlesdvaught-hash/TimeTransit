@@ -216,6 +216,11 @@ export function TripTracker({
           <button aria-label="Dismiss" onClick={() => setNotice(null)}>
             ×
           </button>
+          <img
+            className="notice-badge"
+            src="transit-api-badge.svg"
+            alt="Powered by Transit"
+          />
         </p>
       )}
       {simulation && (

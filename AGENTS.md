@@ -130,7 +130,8 @@ Verify any change with `npx.cmd tsc -b` + `npx.cmd vitest run` before calling it
 - **§3.1: notify Transit ≥10 business days before** making the app public;
   they may require integration changes first. Not needed for limited testing.
 - **§3.2: "Powered by Transit" logo** must visibly appear wherever API Data is
-  shown — NOT yet in the UI; required before launch.
+  shown — done: `transit-api-badge.svg` renders with the live-bus marker,
+  inside route/place cards that show departures, and on watchdog notices.
 - §3.3: no marketing/press mentioning Transit without written approval.
 - §2.3: access is revocable at will — keep Transit as a graceful-degrading
   enhancement (current behavior: silent disable on failure). Never hard-depend.

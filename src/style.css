@@ -1275,6 +1275,21 @@ button:hover {
   height: 28px;
   width: auto;
 }
+.map-card-badge {
+  display: block;
+  height: 22px;
+  width: auto;
+  margin: 8px 0 2px auto;
+  opacity: 0.85;
+}
+.notice-badge {
+  display: block;
+  height: 16px;
+  width: auto;
+  margin-left: auto;
+  opacity: 0.8;
+  flex-shrink: 0;
+}
 .bus-eta {
   color: #9fd8a8;
   font-size: 13px;

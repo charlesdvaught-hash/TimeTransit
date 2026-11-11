@@ -687,6 +687,13 @@ export function MapLayer({ controller }: { controller: TransitController }) {
               )}
             </ol>
           )}
+          {!!routeCard.departures?.length && (
+            <img
+              className="map-card-badge"
+              src="transit-api-badge.svg"
+              alt="Powered by Transit"
+            />
+          )}
         </div>
       )}
       {placeCard && (
@@ -734,6 +741,13 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           >
             Open area in Google Maps
           </a>
+          {!!placeCard.deps?.length && (
+            <img
+              className="map-card-badge"
+              src="transit-api-badge.svg"
+              alt="Powered by Transit"
+            />
+          )}
         </div>
       )}
       <div className="basemap-switch" role="group" aria-label="Basemap">
