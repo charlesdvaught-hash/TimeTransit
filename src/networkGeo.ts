@@ -1,29 +1,56 @@
 import { decode } from "./core";
 import type { ScanIndex } from "./scan";
 
+export type Network = {
+  lines: GeoJSON.FeatureCollection;
+  stops: GeoJSON.FeatureCollection;
+};
+
 // Preferred source: public/scan/network.json (real GTFS shape geometry,
 // all agencies). Falls back to the OCTA scan index's stop sequences.
-export async function loadNetwork(): Promise<GeoJSON.FeatureCollection | null> {
+export async function loadNetwork(): Promise<Network | null> {
   try {
     const r = await fetch("scan/network.json");
     if (r.ok) {
-      const { lines } = (await r.json()) as {
+      const { lines, stops } = (await r.json()) as {
         lines: { c: string; e: string; n?: string; a?: string }[];
+        stops?: [number, number, string, string][];
       };
       return {
-        type: "FeatureCollection",
-        features: lines.map((l) => ({
-          type: "Feature",
-          properties: { c: lift(l.c), n: l.n, a: l.a },
-          geometry: { type: "LineString", coordinates: decode(l.e, 6) },
-        })),
+        lines: {
+          type: "FeatureCollection",
+          features: lines.map((l) => ({
+            type: "Feature",
+            properties: { c: lift(l.c), n: l.n, a: l.a },
+            geometry: { type: "LineString", coordinates: decode(l.e, 6) },
+          })),
+        },
+        stops: {
+          type: "FeatureCollection",
+          features: (stops || []).map(([la, lo, n, a]) => ({
+            type: "Feature",
+            properties: { n, a },
+            geometry: { type: "Point", coordinates: [lo, la] },
+          })),
+        },
       };
     }
   } catch {}
   const { loadScanIndex } = await import("./scanData");
   const index = await loadScanIndex().catch(() => undefined);
-  return index ? buildNetwork(index) : null;
+  return index
+    ? { lines: buildNetwork(index), stops: buildStops(index) }
+    : null;
 }
+
+const buildStops = (index: ScanIndex): GeoJSON.FeatureCollection => ({
+  type: "FeatureCollection",
+  features: index.stops.map((s) => ({
+    type: "Feature",
+    properties: { n: s.n, a: "OCTA" },
+    geometry: { type: "Point", coordinates: [s.lo, s.la] },
+  })),
+});
 
 const hex = (v: string) => {
   const n = parseInt(v.replace("#", ""), 16);

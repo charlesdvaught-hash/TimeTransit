@@ -83,7 +83,22 @@ const encode = (pts) => {
 
 const lines = [];
 const seen = new Set();
+const stops = new Map();
 for (const { dir, color, agency } of dirs) {
+  try {
+    for (const s of csv(join(dir, "stops.txt"))) {
+      if (s.location_type && s.location_type !== "0") continue;
+      const la = +s.stop_lat,
+        lo = +s.stop_lon;
+      if (la && lo && !stops.has(`${la.toFixed(4)},${lo.toFixed(4)}`))
+        stops.set(`${la.toFixed(4)},${lo.toFixed(4)}`, [
+          +la.toFixed(5),
+          +lo.toFixed(5),
+          s.stop_name || "",
+          agency,
+        ]);
+    }
+  } catch {}
   const routes = new Map(
     csv(join(dir, "routes.txt")).map((r) => [
       r.route_id,
@@ -123,9 +138,12 @@ for (const { dir, color, agency } of dirs) {
     });
   }
 }
-writeFileSync(out, JSON.stringify({ v: 1, lines }));
+writeFileSync(
+  out,
+  JSON.stringify({ v: 1, lines, stops: [...stops.values()] }),
+);
 console.log(
-  `${dirs.length} feeds -> ${lines.length} unique shapes,`,
+  `${dirs.length} feeds -> ${lines.length} unique shapes, ${stops.size} stops,`,
   (JSON.stringify({ lines }).length / 1e6).toFixed(1),
   "MB",
 );

@@ -84,20 +84,21 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       // tapped a route line? show its stops + next departures.
       // query a 12px box — thin lines (and dash gaps) are hard to hit,
       // and the fat glow layer makes a generous target.
-      const hit = m.queryRenderedFeatures(
-        [
-          [e.point.x - 12, e.point.y - 12],
-          [e.point.x + 12, e.point.y + 12],
-        ],
-        {
-          layers: [
-            "ambient-glow",
-            "ambient-flow",
-            "ambient-core",
-            "ambient-line",
-          ].filter((l) => m.getLayer(l)),
-        },
-      )[0];
+      const ambientLayers = [
+        "ambient-glow",
+        "ambient-flow",
+        "ambient-core",
+        "ambient-line",
+      ].filter((l) => m.getLayer(l));
+      const hit = ambientLayers.length
+        ? m.queryRenderedFeatures(
+            [
+              [e.point.x - 12, e.point.y - 12],
+              [e.point.x + 12, e.point.y + 12],
+            ],
+            { layers: ambientLayers },
+          )[0]
+        : undefined;
       if (hit?.properties?.n && hit.properties.n !== "?") {
         const p = hit.properties;
         setRouteCard({
@@ -143,6 +144,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     // tinted by route color. Dark: flowing "current" dashes + glow.
     // Satellite: arrows that physically creep along each line.
     let ambientFC: GeoJSON.FeatureCollection | null = null;
+    let stopsFC: GeoJSON.FeatureCollection | null = null;
     let arrows: ArrowField = [];
     const FLOW = [
       [0, 4, 3],
@@ -166,16 +168,43 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       "ambient-flow",
       "ambient-line",
       "ambient-arrows",
+      "ambient-stops",
     ];
     const drawAmbient = () => {
       // getStyle() is enough — isStyleLoaded() stays false while tiles
       // stream in, which would drop every call.
       if (!ambientFC || !m.getStyle()) return;
+      try {
       for (const id of ambientIds) if (m.getLayer(id)) m.removeLayer(id);
       if (m.getSource("ambient")) m.removeSource("ambient");
       if (m.getSource("ambient-arrows")) m.removeSource("ambient-arrows");
+      if (m.getSource("ambient-stops")) m.removeSource("ambient-stops");
       m.addSource("ambient", { type: "geojson", data: ambientFC });
       const sat = m.getContainer().classList.contains("satellite");
+      if (stopsFC) {
+        m.addSource("ambient-stops", { type: "geojson", data: stopsFC });
+        m.addLayer({
+          id: "ambient-stops",
+          type: "circle",
+          source: "ambient-stops",
+          minzoom: 12.5,
+          paint: {
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              12.5,
+              1.5,
+              16,
+              4.5,
+            ],
+            "circle-color": sat ? "#ffd98a" : "#8fd0ff",
+            "circle-opacity": 0.9,
+            "circle-stroke-width": 1.4,
+            "circle-stroke-color": sat ? "#10161f" : "#0a1420",
+          },
+        });
+      }
       if (sat) {
         m.addLayer({
           id: "ambient-line",
@@ -189,11 +218,11 @@ export function MapLayer({ controller }: { controller: TransitController }) {
               ["exponential", 1.5],
               ["zoom"],
               10,
-              2,
+              3,
               15,
-              9,
+              11,
             ],
-            "line-opacity": 0.55,
+            "line-opacity": 0.7,
           },
         });
         m.addLayer({
@@ -202,17 +231,17 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           source: "ambient",
           layout: { "line-cap": "round" },
           paint: {
-            "line-color": "#f5e9c8",
+            "line-color": "#ffdf94",
             "line-width": [
               "interpolate",
               ["exponential", 1.5],
               ["zoom"],
               10,
-              0.8,
+              1.4,
               15,
-              3.5,
+              5,
             ],
-            "line-opacity": 0.75,
+            "line-opacity": 0.95,
           },
         });
         m.addSource("ambient-arrows", {
@@ -255,12 +284,12 @@ export function MapLayer({ controller }: { controller: TransitController }) {
               ["exponential", 1.5],
               ["zoom"],
               10,
-              3,
+              4,
               15,
-              16,
+              20,
             ],
-            "line-blur": 8,
-            "line-opacity": 0.38,
+            "line-blur": 10,
+            "line-opacity": 0.55,
           },
         });
         m.addLayer({
@@ -275,11 +304,11 @@ export function MapLayer({ controller }: { controller: TransitController }) {
               ["exponential", 1.5],
               ["zoom"],
               10,
-              1,
+              1.6,
               15,
-              4.5,
+              6,
             ],
-            "line-opacity": 0.65,
+            "line-opacity": 0.85,
           },
         });
         m.addLayer({
@@ -288,35 +317,52 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           source: "ambient",
           layout: { "line-cap": "round" },
           paint: {
-            "line-color": "#dff0ff",
+            "line-color": "#ffffff",
             "line-width": [
               "interpolate",
               ["exponential", 1.5],
               ["zoom"],
               10,
-              1.2,
+              1.6,
               15,
-              4,
+              5,
             ],
-            "line-opacity": 0.9,
+            "line-opacity": 0.95,
             "line-dasharray": FLOW[0],
           },
         });
       }
+      } catch (e) {
+        setError(
+          `Ambient layer: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     };
     loadNetwork()
-      .then((fc) => {
-        if (!fc) return;
-        ambientFC = fc;
+      .then((net) => {
+        if (!net) return;
+        ambientFC = net.lines;
+        stopsFC = net.stops;
         arrows = arrowField(ambientFC);
         drawAmbient();
       })
-      .catch(() => {});
+      .catch((e) =>
+        setError(
+          `Network layer: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     m.on("style.load", drawAmbient);
     // One loop drives both modes: dash phase on dark, arrow creep on sat.
+    // Skipped entirely when the user prefers reduced motion — static
+    // lines/arrows still draw, they just don't animate.
+    const still = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
     let phase = 0,
       last = performance.now();
-    const beat = setInterval(() => {
+    const beat = still
+      ? 0
+      : setInterval(() => {
       const now = performance.now(),
         dt = (now - last) / 1000;
       last = now;
