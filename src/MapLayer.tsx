@@ -10,7 +10,13 @@ import {
 } from "./basemap";
 import { decode } from "./core";
 import { loadScanIndex } from "./scanData";
-import { buildNetwork, arrowImage } from "./networkGeo";
+import {
+  advanceArrows,
+  arrowField,
+  arrowImage,
+  buildNetwork,
+  type ArrowField,
+} from "./networkGeo";
 import { hasSavedOrigin } from "./preferences";
 import type { TransitController } from "./useTimeTransit";
 maplibregl.setWorkerUrl(workerUrl);
@@ -59,21 +65,44 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     });
     if (!hasSavedOrigin()) locate();
 
-    // Ambient route network — every OCTA stop-to-stop hop, deduped.
+    // Ambient route network — one directional line per unique pattern,
+    // tinted by route color. Dark: flowing "current" dashes + glow.
+    // Satellite: arrows that physically creep along each line.
     let ambientFC: GeoJSON.FeatureCollection | null = null;
+    let arrows: ArrowField = [];
+    const FLOW = [
+      [0, 4, 3],
+      [0.5, 4, 2.5],
+      [1, 4, 2],
+      [1.5, 4, 1.5],
+      [2, 4, 1],
+      [2.5, 4, 0.5],
+      [3, 4, 0],
+      [0, 0.5, 3, 3.5],
+      [0, 1, 3, 3],
+      [0, 1.5, 3, 2.5],
+      [0, 2, 3, 2],
+      [0, 2.5, 3, 1.5],
+      [0, 3, 3, 1],
+      [0, 3.5, 3, 0.5],
+    ];
+    const ambientIds = [
+      "ambient-glow",
+      "ambient-core",
+      "ambient-flow",
+      "ambient-line",
+      "ambient-arrows",
+    ];
     const drawAmbient = () => {
       // getStyle() is enough — isStyleLoaded() stays false while tiles
       // stream in, which would drop every call.
       if (!ambientFC || !m.getStyle()) return;
-      if (m.getLayer("ambient-glow")) m.removeLayer("ambient-glow");
-      if (m.getLayer("ambient-core")) m.removeLayer("ambient-core");
-      if (m.getLayer("ambient-line")) m.removeLayer("ambient-line");
-      if (m.getLayer("ambient-arrows")) m.removeLayer("ambient-arrows");
+      for (const id of ambientIds) if (m.getLayer(id)) m.removeLayer(id);
       if (m.getSource("ambient")) m.removeSource("ambient");
+      if (m.getSource("ambient-arrows")) m.removeSource("ambient-arrows");
       m.addSource("ambient", { type: "geojson", data: ambientFC });
       const sat = m.getContainer().classList.contains("satellite");
       if (sat) {
-        // Mundane mode: dark casing + bright core + direction arrows.
         m.addLayer({
           id: "ambient-line",
           type: "line",
@@ -81,8 +110,8 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           layout: { "line-cap": "round" },
           paint: {
             "line-color": "#0a0f16",
-            "line-width": 6,
-            "line-opacity": 0.75,
+            "line-width": 5,
+            "line-opacity": 0.55,
           },
         });
         m.addLayer({
@@ -91,25 +120,29 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           source: "ambient",
           layout: { "line-cap": "round" },
           paint: {
-            "line-color": "#ffd23f",
-            "line-width": 3,
-            "line-opacity": 0.95,
+            "line-color": "#f5e9c8",
+            "line-width": 1.8,
+            "line-opacity": 0.75,
           },
+        });
+        m.addSource("ambient-arrows", {
+          type: "geojson",
+          data: advanceArrows(arrows, 0),
         });
         if (!m.hasImage("net-arrow")) m.addImage("net-arrow", arrowImage());
         m.addLayer({
           id: "ambient-arrows",
           type: "symbol",
-          source: "ambient",
+          source: "ambient-arrows",
           layout: {
-            "symbol-placement": "line",
-            "symbol-spacing": 40,
             "icon-image": "net-arrow",
             "icon-size": 0.55,
+            "icon-rotate": ["get", "rot"],
             "icon-rotation-alignment": "map",
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
           },
+          paint: { "icon-opacity": 0.85 },
         });
       } else {
         m.addLayer({
@@ -118,10 +151,10 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           source: "ambient",
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
-            "line-color": "#3fa7ff",
-            "line-width": 9,
-            "line-blur": 6,
-            "line-opacity": 0.22,
+            "line-color": ["get", "c"],
+            "line-width": 8,
+            "line-blur": 7,
+            "line-opacity": 0.28,
           },
         });
         m.addLayer({
@@ -130,9 +163,21 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           source: "ambient",
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
-            "line-color": "#8fd0ff",
+            "line-color": ["get", "c"],
+            "line-width": 2,
+            "line-opacity": 0.55,
+          },
+        });
+        m.addLayer({
+          id: "ambient-flow",
+          type: "line",
+          source: "ambient",
+          layout: { "line-cap": "round" },
+          paint: {
+            "line-color": "#dff0ff",
             "line-width": 2.5,
-            "line-opacity": 0.6,
+            "line-opacity": 0.9,
+            "line-dasharray": FLOW[0],
           },
         });
       }
@@ -141,17 +186,27 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       .then((index) => {
         if (!index) return;
         ambientFC = buildNetwork(index);
+        arrows = arrowField(ambientFC);
         drawAmbient();
       })
       .catch(() => {});
     m.on("style.load", drawAmbient);
-    // Slow breathing pulse on the dark-basemap glow.
+    // One loop drives both modes: dash phase on dark, arrow creep on sat.
+    let phase = 0,
+      last = performance.now();
     const beat = setInterval(() => {
-      if (!m.getLayer("ambient-glow")) return;
-      const t = 0.5 + 0.5 * Math.sin(Date.now() / 1400);
-      m.setPaintProperty("ambient-glow", "line-opacity", 0.12 + 0.18 * t);
-      m.setPaintProperty("ambient-glow", "line-width", 8 + 4 * t);
-    }, 120);
+      const now = performance.now(),
+        dt = (now - last) / 1000;
+      last = now;
+      if (m.getLayer("ambient-flow")) {
+        phase = (phase + 1) % FLOW.length;
+        m.setPaintProperty("ambient-flow", "line-dasharray", FLOW[phase]);
+      }
+      if (m.getLayer("ambient-arrows"))
+        (m.getSource("ambient-arrows") as maplibregl.GeoJSONSource)?.setData(
+          advanceArrows(arrows, dt),
+        );
+    }, 90);
     return () => {
       clearInterval(beat);
       m.remove();
