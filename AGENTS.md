@@ -72,10 +72,38 @@ Verify any change with `npx.cmd tsc -b` + `npx.cmd vitest run` before calling it
   undefined beyond 107° longitude).
 - Cloudflare Workers free plan: 100k requests/day — far above this relay's load.
 
+## Transit API terms (transitapp.com/reports/API_terms.pdf — read before shipping)
+
+- Public apps are explicitly allowed (§2.2 grants rights to "distribute a
+  Partner Application" serving End Users), but §2.1 restricts the free tier to
+  "testing purposes or small-scale use" — real public scale requires an API
+  Agreement (paid, negotiated with Transit).
+- **Free-tier limits (§2.4): 5 calls/min, 1,500 calls/month** — hard ceiling,
+  auto-suspension on breach. ~1–2 calls per transit leg per selection means
+  this feeds a demo, not a user base.
+- **§3.1: notify Transit ≥10 business days before** making the app public;
+  they may require integration changes first. Not needed for limited testing.
+- **§3.2: "Powered by Transit" logo** must visibly appear wherever API Data is
+  shown — NOT yet in the UI; required before launch.
+- §3.3: no marketing/press mentioning Transit without written approval.
+- §2.3: access is revocable at will — keep Transit as a graceful-degrading
+  enhancement (current behavior: silent disable on failure). Never hard-depend.
+- §8.2: no archiving API Data beyond technical cache; destroy on termination.
+  SW must keep Transit responses uncached (current behavior). Derived stats
+  (reliability observations) are Partner-owned per §8.3.
+- §8.4: send no personal data beyond what queries require (lat/lon only).
+- §11.2: Partner is liable for end-user reliance on API Data — an accuracy
+  disclaimer in-app is expected. §11.3: Partner indemnifies Transit for
+  end-user reliance claims.
+- §2.5: prohibited — exceeding limits, replicating their database,
+  reverse-engineering the API.
+- Key security (§2.6): any use under our key is deemed ours — the Worker's
+  origin allowlist is the quota-theft protection.
+
 ## Watch out
 
-- Transit free-key quota is small; each journey selection costs ~1–2 relay
-  requests per transit leg.
+- Transit free-key quota is 5 calls/min + 1,500 calls/month (see terms above);
+  each journey selection costs ~1–2 relay requests per transit leg.
 - Service worker caches app shell, basemap tiles, fonts; plan/search data is
   NetworkFirst with 24 h fallback; Transit API responses are deliberately uncached.
 - Geolocation needs a secure context (HTTPS or localhost) — the installable PWA
