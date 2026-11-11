@@ -289,3 +289,40 @@ it("prefers a farther place served by a reachable stop over a nearer unserved on
   expect(ranked.map((p) => p.id)).toEqual(["far", "near"]);
   expect(rankByReachability(chicago, [near, far], [], 1.4)[0].id).toBe("near");
 });
+// STAGE-4: verifiedOnly penalizes low-confidence places without excluding them
+it("penalizes low-confidence places when verifiedOnly is on", () => {
+  const weak = {
+    ...chicago,
+    id: "weak",
+    name: "Weak",
+    lat: chicago.lat + 0.025,
+    confidence: 0.5,
+  };
+  const solid = {
+    ...chicago,
+    id: "solid",
+    name: "Solid",
+    lat: chicago.lat + 0.03,
+    confidence: 1,
+  };
+  expect(rankByReachability(chicago, [weak, solid], [], 1.4)[0].id).toBe(
+    "weak",
+  );
+  expect(
+    rankByReachability(chicago, [weak, solid], [], 1.4, {
+      verifiedOnly: true,
+    })[0].id,
+  ).toBe("solid");
+  // unknown confidence is never penalized — old indexes carry no c
+  const mystery = {
+    ...chicago,
+    id: "mystery",
+    name: "Mystery",
+    lat: chicago.lat + 0.01,
+  };
+  expect(
+    rankByReachability(chicago, [mystery, solid], [], 1.4, {
+      verifiedOnly: true,
+    })[0].id,
+  ).toBe("mystery");
+});
