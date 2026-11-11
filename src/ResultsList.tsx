@@ -5,8 +5,12 @@ import {
   ChevronRight,
   Coffee,
   Dumbbell,
+  GripVertical,
   Hammer,
   Layers,
+  LocateFixed,
+  Lock,
+  LockOpen,
   MapPin,
   Pill,
   Plus,
@@ -87,6 +91,8 @@ export function ResultsList({ controller }: { controller: TransitController }) {
   const [searching, setSearching] = useState(false);
   const [alts, setAlts] = useState<Suggestion[]>([]);
   const [active, setActive] = useState(0);
+  const [altOpen, setAltOpen] = useState(-1);
+  const dragIdx = useRef(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const parts = query.split("+").map((s) => s.trim());
   const stops = parts.filter(Boolean);
@@ -202,6 +208,45 @@ export function ResultsList({ controller }: { controller: TransitController }) {
     setSuggestions([]);
     if (s.place) run(next, pinPlace(s.place));
     else run(next);
+  }
+  // alternatives for a stop slot: the optimizer's candidate pool first,
+  // then anything of the same kind clustered around the OTHER chosen
+  // destinations — 'what else could this leg be?'
+  function alternativesFor(i: number): Place[] {
+    const label = slots[i];
+    if (!label) return [];
+    const resolved = chain?.visits.find((v) => v.stop.id === `seg-${i}`);
+    const seen = new Set<string>();
+    const pool: Place[] = [];
+    const add = (p: Place) => {
+      if (!seen.has(p.id) && p.id !== resolved?.place.id) {
+        seen.add(p.id);
+        pool.push(p);
+      }
+    };
+    resolved?.stop.candidates.forEach(add);
+    for (const v of chain?.visits ?? [])
+      if (v !== resolved) searchPlaces(label, v.place, 4).forEach(add);
+    if (!pool.length) searchPlaces(label, origin, 6).forEach(add);
+    return pool.slice(0, 8);
+  }
+  function swap(i: number, p: Place) {
+    const arr = [...slots];
+    arr[i] = p.name;
+    const next = arr.join(" + ");
+    setAltOpen(-1);
+    setQuery(next);
+    run(next, pinPlace(p));
+  }
+  function dropTo(i: number) {
+    const from = dragIdx.current;
+    dragIdx.current = -1;
+    if (from < 0 || from === i) return;
+    const arr = [...slots];
+    const [moved] = arr.splice(from, 1);
+    arr.splice(i, 0, moved);
+    setQuery(arr.join(" + "));
+    setStopPin(i, i === 0 ? "first" : i === arr.length - 1 ? "last" : "middle");
   }
   return (
     <>
@@ -341,48 +386,95 @@ export function ResultsList({ controller }: { controller: TransitController }) {
       {stops.length > 0 && slots.length >= 2 && (
         <div className="trip-options">
           <div className="trip-stops">
-            {slots.map((label, i) => (
-              <label className="trip-stop" key={`${label}-${i}`}>
-                <span className="trip-stop-index">{i + 1}</span>
-                <button
-                  type="button"
-                  className={`trip-pin${stopPins[i] ? " set" : ""}`}
-                  title={`Order pin: ${stopPins[i] || "free"} (click to cycle)`}
-                  aria-label={`Pin stop ${i + 1} order: ${stopPins[i] || "free"}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    const cycle = [
-                      undefined,
-                      "first",
-                      "middle",
-                      "last",
-                    ] as const;
-                    setStopPin(
-                      i,
-                      cycle[(cycle.indexOf(stopPins[i]) + 1) % cycle.length],
-                    );
-                  }}
+            {slots.map((label, i) => {
+              const slotPin =
+                i === 0 ? "first" : i === slots.length - 1 ? "last" : "middle";
+              return (
+                <div
+                  className="trip-stop"
+                  key={`${label}-${i}`}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => dropTo(i)}
                 >
-                  {stopPins[i] === "first"
-                    ? "^"
-                    : stopPins[i] === "last"
-                      ? "$"
-                      : stopPins[i] === "middle"
-                        ? "~"
-                        : "·"}
-                </button>
-                <span className="trip-stop-name">{label || "Next stop"}</span>
-                <input
-                  aria-label={`Stay minutes at ${label || `stop ${i + 1}`}`}
-                  type="number"
-                  min="0"
-                  max="240"
-                  value={dwells[i] ?? dwell}
-                  onChange={(e) => setStopDwell(i, Number(e.target.value))}
-                />
-                <small>min</small>
-              </label>
-            ))}
+                  <button
+                    type="button"
+                    className="trip-grip"
+                    title="Drag to reorder stops"
+                    aria-label={`Drag to reorder stop ${i + 1}`}
+                    draggable
+                    onDragStart={() => (dragIdx.current = i)}
+                  >
+                    <GripVertical size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    className={`trip-pin${stopPins[i] ? " set" : ""}`}
+                    title={
+                      stopPins[i]
+                        ? `Locked ${stopPins[i]} — click to free`
+                        : "Free order — click to lock this slot"
+                    }
+                    aria-label={`Stop ${i + 1} order: ${stopPins[i] ? `locked ${stopPins[i]}` : "free"}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setStopPin(
+                        i,
+                        stopPins[i] ? undefined : slotPin,
+                      );
+                    }}
+                  >
+                    {stopPins[i] ? <Lock size={11} /> : <LockOpen size={11} />}
+                  </button>
+                  <span className="trip-stop-name">{label || "Next stop"}</span>
+                  {label && (
+                    <button
+                      type="button"
+                      className="trip-alt"
+                      title="Other options nearby"
+                      aria-label={`Alternatives for ${label}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setAltOpen(altOpen === i ? -1 : i);
+                      }}
+                    >
+                      <LocateFixed size={12} />
+                      <b>?</b>
+                    </button>
+                  )}
+                  <input
+                    aria-label={`Stay minutes at ${label || `stop ${i + 1}`}`}
+                    type="number"
+                    min="0"
+                    max="240"
+                    value={dwells[i] ?? dwell}
+                    onChange={(e) => setStopDwell(i, Number(e.target.value))}
+                  />
+                  <small>min</small>
+                  {altOpen === i && (
+                    <div className="alt-list">
+                      {alternativesFor(i).length ? (
+                        alternativesFor(i).map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => swap(i, p)}
+                          >
+                            <strong>{p.name}</strong>
+                            <small>
+                              {[p.kind, p.address]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </small>
+                          </button>
+                        ))
+                      ) : (
+                        <small>No other candidates found nearby.</small>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <label className="return">
             <input
