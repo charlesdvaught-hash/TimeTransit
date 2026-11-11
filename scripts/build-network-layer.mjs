@@ -138,10 +138,7 @@ for (const { dir, color, agency } of dirs) {
     });
   }
 }
-writeFileSync(
-  out,
-  JSON.stringify({ v: 1, lines, stops: [...stops.values()] }),
-);
+writeFileSync(out, JSON.stringify({ v: 1, lines, stops: [...stops.values()] }));
 console.log(
   `${dirs.length} feeds -> ${lines.length} unique shapes, ${stops.size} stops,`,
   (JSON.stringify({ lines }).length / 1e6).toFixed(1),

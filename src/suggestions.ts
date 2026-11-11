@@ -111,9 +111,7 @@ export function mergeSuggestions(query: string, ...lists: Place[][]) {
     return {
       suggestion,
       score:
-        nameScore(query, suggestion.label) +
-        typeScore +
-        (typeHit ? 250 : 0),
+        nameScore(query, suggestion.label) + typeScore + (typeHit ? 250 : 0),
     };
   });
   return scored
