@@ -3,4 +3,4 @@ main = "transit-relay.js"
 compatibility_date = "2025-01-01"
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:5173"
+ALLOWED_ORIGINS = "http://localhost:5173, https://charlesdvaught-hash.github.io"

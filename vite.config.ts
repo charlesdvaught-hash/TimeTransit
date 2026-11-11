@@ -3,6 +3,7 @@ import { VitePWA } from "vite-plugin-pwa";
 export default defineConfig(({ mode }) => {
   const key = loadEnv(mode, ".", "").VITE_TRANSIT_API_KEY;
   return {
+    base: process.env.VITE_BASE || "/TimeTransit/",
     plugins: [
       VitePWA({
         registerType: "autoUpdate",
