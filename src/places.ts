@@ -8,6 +8,7 @@ type Row = {
   n: string;
   a?: string;
   k?: string; // venue kind, e.g. "arcade" — spaces, lowercase
+  c?: number; // confidence digit 0-9; absent on indexes built before Stage 4
   la: number;
   lo: number;
   lw?: string;
@@ -32,6 +33,16 @@ export function loadPlaces(): Promise<Row[] | null> {
   return loading;
 }
 
+const toPlace = (r: Row): Place => ({
+  id: `ovt-${r.la},${r.lo}`,
+  name: r.n,
+  address: r.a,
+  kind: r.k,
+  lat: r.la,
+  lon: r.lo,
+  confidence: r.c === undefined ? undefined : r.c / 9,
+});
+
 // synchronous once loaded — "what is at this point" for map taps
 export function nearestPlaces(
   point: { lat: number; lon: number },
@@ -50,14 +61,7 @@ export function nearestPlaces(
     .filter((x) => x.m <= maxM)
     .sort((a, b) => a.m - b.m)
     .slice(0, limit)
-    .map((x) => ({
-      id: `ovt-${x.r.la},${x.r.lo}`,
-      name: x.r.n,
-      address: x.r.a,
-      kind: x.r.k,
-      lat: x.r.la,
-      lon: x.r.lo,
-    }));
+    .map((x) => toPlace(x.r));
 }
 
 // synchronous once loaded — callers should kick loadPlaces() first/early
@@ -80,9 +84,7 @@ export function searchPlaces(
   for (const k of keys.length ? keys : words) {
     // name OR venue kind — "arcade" should find places typed arcade,
     // not just names containing the word
-    pool = rows.filter(
-      (p) => p.lw!.includes(k) || (p.kw && p.kw.includes(k)),
-    );
+    pool = rows.filter((p) => p.lw!.includes(k) || (p.kw && p.kw.includes(k)));
     if (pool.length) break;
   }
   const scored: { p: Row; s: number }[] = [];
@@ -90,19 +92,56 @@ export function searchPlaces(
     const s = Math.max(nameScore(query, p.n), nameScore(query, p.kw ?? ""));
     if (s >= 200) scored.push({ p, s });
   }
-  const pt = (r: Row): Place => ({
-    id: `ovt-${r.la},${r.lo}`,
-    name: r.n,
-    address: r.a,
-    kind: r.k,
-    lat: r.la,
-    lon: r.lo,
-  });
   return scored
     .sort(
       (a, b) =>
-        b.s - a.s || distance(origin, pt(a.p)) - distance(origin, pt(b.p)),
+        b.s - a.s ||
+        distance(origin, toPlace(a.p)) - distance(origin, toPlace(b.p)),
     )
     .slice(0, limit)
-    .map((x) => pt(x.p));
+    .map((x) => toPlace(x.p));
+}
+
+// STAGE-4: keep only places within walk distance of a reachable transit stop
+export function placesInCorridor(
+  kinds: string[],
+  stops: { lat: number; lon: number }[],
+  opts: {
+    radiusM: number;
+    limit?: number;
+    verifiedOnly?: boolean;
+    origin?: { lat: number; lon: number };
+  },
+): Place[] {
+  if (!rows) {
+    loadPlaces();
+    return [];
+  }
+  let pool: Row[] = [];
+  for (const k of kinds.map((k) => k.toLowerCase()).filter(Boolean)) {
+    pool = rows.filter((r) => r.lw!.includes(k) || (r.kw && r.kw.includes(k)));
+    if (pool.length) break;
+  }
+  if (!pool.length) return [];
+  const meters = (r: Row) => {
+    const d = (p: { lat: number; lon: number }) =>
+      distance(p, { lat: r.la, lon: r.lo }) * 1000;
+    let m = opts.origin ? d(opts.origin) : Infinity;
+    for (const s of stops) m = Math.min(m, d(s));
+    return m;
+  };
+  const inRange = pool
+    .map((r) => ({ r, m: meters(r) }))
+    .filter((x) => x.m <= opts.radiusM);
+  const verified = opts.verifiedOnly
+    ? inRange.filter((x) => x.r.c !== undefined && x.r.c >= 8)
+    : inRange;
+  // rows without c predate the field — never empty the pool over missing data
+  const list = opts.verifiedOnly && verified.length ? verified : inRange;
+  const q = kinds.join(" ");
+  const kindScore = (r: Row) => nameScore(q, r.kw ?? "");
+  return list
+    .sort((a, b) => a.m - b.m || kindScore(b.r) - kindScore(a.r))
+    .slice(0, opts.limit ?? 30)
+    .map((x) => toPlace(x.r));
 }

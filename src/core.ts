@@ -6,6 +6,7 @@ export type Place = {
   lon: number;
   address?: string;
   kind?: string; // venue type, e.g. "amusement arcade" — powers category-aware ranking
+  confidence?: number; // STAGE-4: Overture confidence 0-1, absent when unknown
   stopId?: string;
   tz?: string;
 };
@@ -251,6 +252,7 @@ export function rankByReachability(
   places: Place[],
   stops: ReachableStop[],
   walkingSpeed: number,
+  opts?: { verifiedOnly?: boolean }, // STAGE-4
 ) {
   const estimate = (p: Place) => {
     let best = Infinity;
@@ -259,9 +261,15 @@ export function rankByReachability(
       if (km <= 1.5)
         best = Math.min(best, s.minutes + (km * 1000) / walkingSpeed / 60);
     }
-    return Number.isFinite(best)
+    const minutes = Number.isFinite(best)
       ? best
       : (distance(origin, p) * 1000) / walkingSpeed / 60;
+    // STAGE-4: low-confidence POIs are a gamble — penalize, don't exclude
+    return opts?.verifiedOnly &&
+      p.confidence !== undefined &&
+      p.confidence < 8.5 / 9
+      ? minutes * 1.5
+      : minutes;
   };
   const scores = new Map(places.map((p) => [p.id, estimate(p)]));
   return [...places].sort(
@@ -369,11 +377,13 @@ export function scanOrder(
     beam?: number;
     tz?: string;
     delays?: Map<string, Map<string, { d?: number; t?: number }>>;
+    verifiedOnly?: boolean; // STAGE-4
   } = {},
 ): { combo: { stop: Stop; place: Place }[]; total: number }[] {
   const n = stops.length;
   type St = {
     at: number;
+    key: number; // STAGE-4: penalized arrival used only for beam sorting
     combo: { stop: Stop; place: Place }[];
     left: Stop[];
     used: Set<string>;
@@ -409,8 +419,17 @@ export function scanOrder(
           opts.maxWalkM,
         );
         if (at === undefined) continue;
+        // STAGE-4: unverified places sort as if the leg took 1.5x as long;
+        // the real arrival still flows into the state
+        const key =
+          opts.verifiedOnly &&
+          place.confidence !== undefined &&
+          place.confidence < 8.5 / 9
+            ? st.at + (at - st.at) * 1.5
+            : at;
         out.push({
           at: at + s.dwell * 60000,
+          key: key + s.dwell * 60000,
           combo: [...st.combo, { stop: s, place }],
           left: st.left.filter((x) => x !== s),
           used: new Set([...st.used, place.id]),
@@ -421,12 +440,19 @@ export function scanOrder(
     return out;
   };
   let states: St[] = [
-    { at: departMs, combo: [], left: stops, used: new Set(), from: origin },
+    {
+      at: departMs,
+      key: departMs,
+      combo: [],
+      left: stops,
+      used: new Set(),
+      from: origin,
+    },
   ];
   for (let level = 0; level < n && states.length; level++) {
     states = states
       .flatMap((st) => expand(st, level))
-      .sort((a, b) => a.at - b.at)
+      .sort((a, b) => a.key - b.key)
       .slice(0, opts.beam ?? 10);
   }
   const seen = new Set<string>();

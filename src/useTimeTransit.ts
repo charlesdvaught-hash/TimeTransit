@@ -18,7 +18,7 @@ import { search, plan, planOptions, nearby, reachable } from "./api";
 import { inCoverage, scan } from "./scan";
 import { loadScanIndex } from "./scanData";
 import { fetchTripDelays } from "./gtfsrt";
-import { loadPlaces, searchPlaces } from "./places";
+import { loadPlaces, placesInCorridor, searchPlaces } from "./places";
 import { observation } from "./reliability";
 import { addObservations } from "./reliabilityStore";
 import {
@@ -353,6 +353,7 @@ export function useTimeTransit() {
         candidates,
         stops,
         preferences.walkingSpeed,
+        { verifiedOnly: preferences.verifiedOnly }, // STAGE-4
       ).slice(0, 20);
       const distanceRanks = new Map(
         [...candidates]
@@ -459,6 +460,24 @@ export function useTimeTransit() {
     setChain(null);
     try {
       const start = departureSnapshot(departure);
+      // STAGE-4: warm the scan + places indexes before resolving so segment
+      // candidates can be filtered to the reachable-stop corridor
+      const scanPromise = loadScanIndex().catch(() => undefined);
+      loadPlaces();
+      const corridor: { lat: number; lon: number }[] = [];
+      const corridorReady = scanPromise
+        .then((idx) => {
+          if (idx && inCoverage(idx, origin))
+            for (const si of scan(idx, origin, start.getTime(), {
+              walkSpeed: preferences.walkingSpeed,
+              maxWalkM: preferences.walkDistance,
+            }).keys())
+              corridor.push({ lat: idx.stops[si].la, lon: idx.stops[si].lo });
+        })
+        .catch(() => undefined);
+      const dedupe = (list: Place[]) => [
+        ...new Map(list.map((p) => [p.id, p])).values(),
+      ]; // STAGE-4
       const resolved = await resolveTripCandidates(
         segments.map((label, i) => {
           const m = /^([\\^$~])\s*(.+)$/.exec(label.trim());
@@ -480,15 +499,23 @@ export function useTimeTransit() {
           };
         }),
         (query) =>
-          search(query, origin, c.signal).then((r) => [
-            ...searchPlaces(query, origin),
-            ...r,
-          ]),
+          search(query, origin, c.signal).then(async (r) => {
+            await corridorReady; // STAGE-4
+            return dedupe([
+              ...placesInCorridor([query], corridor, {
+                radiusM: preferences.walkDistance,
+                verifiedOnly: preferences.verifiedOnly ?? false,
+                origin,
+              }),
+              ...searchPlaces(query, origin),
+              ...r,
+            ]);
+          }),
         (place) =>
           plan(origin, place, start, c.signal, preferences, recordProviders),
         c.signal,
       );
-      const scanIdx = await loadScanIndex().catch(() => undefined);
+      const scanIdx = await scanPromise; // settled alongside corridorReady
       const delays =
         scanIdx &&
         inCoverage(scanIdx, origin) &&
@@ -502,6 +529,7 @@ export function useTimeTransit() {
               walkSpeed: preferences.walkingSpeed,
               maxWalkM: preferences.walkDistance,
               delays,
+              verifiedOnly: preferences.verifiedOnly, // STAGE-4
             })
           : undefined;
       if (order && resolved.some((s) => s.pin)) {
@@ -515,6 +543,7 @@ export function useTimeTransit() {
             walkSpeed: preferences.walkingSpeed,
             maxWalkM: preferences.walkDistance,
             delays,
+            verifiedOnly: preferences.verifiedOnly, // STAGE-4
           },
         );
         const saved = (order[0]?.total ?? 0) - (free[0]?.total ?? 0);

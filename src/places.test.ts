@@ -18,10 +18,10 @@ const ROWS = [
 ];
 const ORIGIN = { lat: 33.8366, lon: -117.9143 };
 
-async function mod() {
+async function mod(rows = ROWS) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({ ok: true, json: async () => ROWS })),
+    vi.fn(async () => ({ ok: true, json: async () => rows })),
   );
   vi.resetModules();
   const m = await import("./places");
@@ -49,5 +49,59 @@ describe("searchPlaces", () => {
     vi.resetModules();
     const { searchPlaces } = await import("./places");
     expect(searchPlaces("partners", ORIGIN)).toEqual([]);
+  });
+});
+
+// STAGE-4
+const CORRIDOR = [
+  { n: "Verified Cafe", k: "coffee shop", la: 33.836, lo: -117.914, c: 9 },
+  { n: "Shaky Cafe", k: "coffee shop", la: 33.8365, lo: -117.9145, c: 4 },
+  { n: "Coffee Corner", la: 33.837, lo: -117.9138 }, // name match, no c/k
+  { n: "Far Coffee", k: "coffee shop", la: 33.95, lo: -117.8, c: 9 },
+  { n: "Corner Tire", k: "tire shop", la: 33.8362, lo: -117.9142, c: 9 },
+  { n: "Wobbly Mart", k: "convenience store", la: 33.8363, lo: -117.9143 },
+];
+const STOP = { lat: 33.8361, lon: -117.9141 };
+
+describe("placesInCorridor", () => {
+  it("keeps kind-matched places within the stop radius, nearest first", async () => {
+    const { placesInCorridor } = await mod(CORRIDOR);
+    const hits = placesInCorridor(["coffee"], [STOP], { radiusM: 500 });
+    expect(hits.map((h) => h.name)).toEqual([
+      "Verified Cafe",
+      "Shaky Cafe",
+      "Coffee Corner",
+    ]);
+    expect(hits[0]?.confidence).toBe(1);
+  });
+  it("treats the origin as a corridor anchor when stops are empty", async () => {
+    const { placesInCorridor } = await mod(CORRIDOR);
+    const hits = placesInCorridor(["coffee"], [], {
+      radiusM: 500,
+      origin: { lat: 33.8364, lon: -117.9142 },
+    });
+    expect(hits.map((h) => h.name)).toContain("Verified Cafe");
+    expect(hits.map((h) => h.name)).not.toContain("Far Coffee");
+  });
+  it("verifiedOnly keeps only high-confidence rows", async () => {
+    const { placesInCorridor } = await mod(CORRIDOR);
+    const hits = placesInCorridor(["coffee"], [STOP], {
+      radiusM: 500,
+      verifiedOnly: true,
+    });
+    expect(hits.map((h) => h.name)).toEqual(["Verified Cafe"]);
+  });
+  it("falls back to the unfiltered pool when no row carries confidence", async () => {
+    const { placesInCorridor } = await mod(CORRIDOR);
+    const hits = placesInCorridor(["convenience"], [STOP], {
+      radiusM: 500,
+      verifiedOnly: true,
+    });
+    expect(hits.map((h) => h.name)).toEqual(["Wobbly Mart"]);
+  });
+  it("returns [] before the index loads", async () => {
+    vi.resetModules();
+    const { placesInCorridor } = await import("./places");
+    expect(placesInCorridor(["coffee"], [STOP], { radiusM: 500 })).toEqual([]);
   });
 });

@@ -1,6 +1,10 @@
 import { chicago, type Itinerary, type Place } from "./core";
 import { readStored, writeStored } from "./storage";
-export type Preferences = { walkDistance: number; walkingSpeed: number };
+export type Preferences = {
+  walkDistance: number;
+  walkingSpeed: number;
+  verifiedOnly?: boolean; // STAGE-4
+};
 export const defaults: Preferences = { walkDistance: 800, walkingSpeed: 1.4 };
 export function validPreferences(value: unknown): value is Preferences {
   const p = value as Preferences | null;
