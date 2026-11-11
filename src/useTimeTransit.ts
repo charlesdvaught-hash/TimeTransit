@@ -21,6 +21,7 @@ import type { SemanticParseResult } from "./contracts"; // STAGE-1
 import { inCoverage, reachableStops, scan } from "./scan";
 import { loadScanIndex } from "./scanData";
 import { fetchTripDelays } from "./gtfsrt";
+import { loadBasemap, saveBasemap, type Basemap } from "./basemap";
 import { loadPlaces, placesInCorridor, searchPlaces } from "./places";
 import { observation } from "./reliability";
 import { addObservations } from "./reliabilityStore";
@@ -53,6 +54,7 @@ export function useTimeTransit() {
     exploreAbort = useRef<AbortController | null>(null),
     tripAbort = useRef<AbortController | null>(null);
   const [origin, setOrigin] = useState(loadOrigin()),
+    [basemap, setBasemap] = useState<Basemap>(loadBasemap),
     [preferences, updatePreferences] = useState(loadPreferences()),
     [query, setQuery] = useState(""),
     [results, setResults] = useState<Result[]>([]),
@@ -161,6 +163,10 @@ export function useTimeTransit() {
     setDeparture(departure);
     updatePreferences(p);
     savePreferences(p);
+  }
+  function chooseBasemap(b: Basemap) {
+    setBasemap(b);
+    saveBasemap(b);
   }
   function recordProviders(names: string[]) {
     setProviders((previous) => [...new Set([...previous, ...names])]);
@@ -720,6 +726,8 @@ export function useTimeTransit() {
     arrival,
     locating,
     map,
+    basemap,
+    chooseBasemap,
     changeOrigin,
     locate,
     run,

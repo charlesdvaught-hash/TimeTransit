@@ -20,6 +20,10 @@ export function AdventureAssistant({
   const [log, setLog] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const orb =
+    controller.basemap === "satellite"
+      ? "assistant-orb-satellite.svg"
+      : "assistant-orb-dark.svg";
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [pending, setPending] = useState<string | null>(null);
   const waiting = useRef<{ plan: AdventurePlan; term: string } | null>(null);
@@ -87,7 +91,7 @@ export function AdventureAssistant({
   return (
     <details className="utility-panel adventure-assistant">
       <summary>
-        Plan an adventure
+        <img className="assistant-orb" src={orb} alt="" /> Plan an adventure
         <span>AI</span>
       </summary>
       <div className="adventure-log">
@@ -96,10 +100,18 @@ export function AdventureAssistant({
         )}
         {log.map((m, i) => (
           <p key={i} className={`adventure-msg ${m.role}`}>
+            {m.role === "assistant" && (
+              <img className="assistant-orb" src={orb} alt="" />
+            )}
             {m.content}
           </p>
         ))}
-        {busy && <p className="adventure-msg assistant">Thinking…</p>}
+        {busy && (
+          <p className="adventure-msg assistant">
+            <img className="assistant-orb" src={orb} alt="" />
+            Thinking…
+          </p>
+        )}
       </div>
       <form className="adventure-form" onSubmit={send}>
         <input

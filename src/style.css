@@ -1819,6 +1819,20 @@ button:hover {
   padding: 2px 9px;
 }
 /* STAGE-6: adventure planner chat */
+.assistant-orb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  vertical-align: -3px;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.adventure-msg .assistant-orb {
+  width: 12px;
+  height: 12px;
+  vertical-align: -2px;
+  margin-right: 5px;
+}
 .adventure-log {
   max-height: 180px;
   overflow-y: auto;

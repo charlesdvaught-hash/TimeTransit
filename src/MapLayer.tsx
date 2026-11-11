@@ -2,12 +2,7 @@ import { Crosshair, Minus, MoonStar, Plus, Satellite } from "lucide-react";
 import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { useEffect, useRef, useState } from "react";
-import {
-  basemapStyles,
-  loadBasemap,
-  saveBasemap,
-  type Basemap,
-} from "./basemap";
+import { basemapStyles } from "./basemap";
 import { decode } from "./core";
 import {
   advanceArrows,
@@ -45,11 +40,12 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     liveBus,
     hover,
     busy,
+    basemap,
+    chooseBasemap,
   } = controller;
   const mapNode = useRef<HTMLDivElement>(null);
   const pickRef = useRef(picking);
   const styled = useRef(false);
-  const [basemap, setBasemap] = useState<Basemap>(loadBasemap);
   const [routeCard, setRouteCard] = useState<
     | (Partial<RouteInfo> & {
         name: string;
@@ -664,10 +660,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     });
     return () => markers.forEach((x) => x.remove());
   }, [hover]);
-  const choose = (b: Basemap) => {
-    setBasemap(b);
-    saveBasemap(b);
-  };
+  const choose = chooseBasemap;
   return (
     <>
       <div ref={mapNode} className="map" />
