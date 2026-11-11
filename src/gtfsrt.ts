@@ -39,7 +39,7 @@ function fields(buf: Uint8Array, start = 0, end = buf.length): Field[] {
 const str = (v: Field["v"]) =>
   v instanceof Uint8Array ? new TextDecoder().decode(v) : "";
 const msgs = (list: Field[], f: number) =>
-  list.filter((x) => x.f === f && x.v instanceof Uint8Array);
+  list.filter((x) => x.f === f && x.wire === 2);
 const num = (list: Field[], f: number) =>
   list.find((x) => x.f === f && typeof x.v === "number")?.v as
     number | undefined;
@@ -103,7 +103,7 @@ export function decodeVehiclePositions(
 ): Map<string, VehiclePos> {
   const out = new Map<string, VehiclePos>();
   for (const ent of msgs(fields(buf), 2)) {
-    const veh = msgs(fields(ent.v as Uint8Array), 2)[0];
+    const veh = msgs(fields(ent.v as Uint8Array), 4)[0];
     if (!veh) continue;
     const vF = fields(veh.v as Uint8Array);
     const tripMsg = msgs(vF, 1)[0];
