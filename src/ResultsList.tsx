@@ -78,6 +78,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
   const [focused, setFocused] = useState(false);
   const [caret, setCaret] = useState(0);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [alts, setAlts] = useState<Suggestion[]>([]);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const parts = query.split("+").map((s) => s.trim());
@@ -148,6 +149,12 @@ export function ResultsList({ controller }: { controller: TransitController }) {
     const next = parts.map((p) => p.trim()).join(" + ");
     setQuery(next);
     setFocused(false);
+    // keep same-family names reachable: fat-fingered picks get "did you mean"
+    setAlts(
+      suggestions
+        .filter((o) => o.kind === "place" && o.label !== s.label)
+        .slice(0, 3),
+    );
     setSuggestions([]);
     if (s.place) run(next, pinPlace(s.place));
     else run(next);
@@ -176,6 +183,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
             placeholder="Where to? Separate stops with +"
             value={query}
             onChange={(e) => {
+              setAlts([]);
               setQuery(e.target.value);
               setFocused(true);
               setCaret(e.target.selectionStart ?? e.target.value.length);
@@ -249,6 +257,16 @@ export function ResultsList({ controller }: { controller: TransitController }) {
           </div>
         )}
       </div>
+      {alts.length > 0 && (
+        <p className="did-you-mean">
+          Did you mean:
+          {alts.map((a) => (
+            <button key={a.id} onClick={() => choose(a)}>
+              {a.label}
+            </button>
+          ))}
+        </p>
+      )}
       <div className="categories">
         {Object.keys(categories).map((c) => {
           const Icon = categoryIcons[c] ?? Layers;

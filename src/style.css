@@ -397,6 +397,20 @@ header {
   color: #7d93ab;
   text-align: right;
 }
+.did-you-mean {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: #859bb3;
+  margin: 6px 0 0;
+}
+.did-you-mean button {
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 999px;
+}
 .categories {
   display: flex;
   flex-wrap: nowrap;
