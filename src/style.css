@@ -1704,3 +1704,46 @@ button:hover {
 .map-card-dep span:nth-child(2) {
   color: #9fd8a8;
 }
+/* STAGE-6: adventure planner chat */
+.adventure-log {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+.adventure-msg {
+  margin: 4px 0;
+  padding: 6px 10px;
+  border: 1px solid #ffffff14;
+  border-radius: 10px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #a9bbce;
+  background: #1c3046;
+}
+.adventure-msg.user {
+  margin-left: 28px;
+  color: #cfe4ff;
+  border-color: #4d9eff33;
+  background: #247ce52e;
+}
+.adventure-msg.assistant {
+  margin-right: 28px;
+}
+.adventure-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.adventure-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px;
+  font-size: 10px;
+  color: #e2edfa;
+  background: #1c3046;
+  border: 1px solid #4672a0;
+  border-radius: 5px;
+}
+.adventure-form button {
+  color: #7f93aa;
+}

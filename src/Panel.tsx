@@ -4,6 +4,7 @@ import { searchOrigin } from "./api";
 import { SettingsPanel } from "./SettingsPanel";
 import { delayText, minutes, time, transfers } from "./display";
 import { ResultsList } from "./ResultsList";
+import { AdventureAssistant } from "./AdventureAssistant"; // STAGE-6
 import type { TransitController } from "./useTimeTransit";
 export function Panel({ controller }: { controller: TransitController }) {
   const {
@@ -136,6 +137,9 @@ export function Panel({ controller }: { controller: TransitController }) {
           />
         )}
       </div>
+      {controller.preferences.aiMode === "full" && ( // STAGE-6
+        <AdventureAssistant controller={controller} />
+      )}
       <SettingsPanel controller={controller} />
       <ResultsList controller={controller} />
       {error && (
