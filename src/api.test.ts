@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { searchParams, searchOrigin, plan, search, reachable } from "./api";
 import { categories, chicago } from "./core";
+import { defaults } from "./preferences";
 describe("Photon category queries", () => {
   for (const [label, tag] of Object.entries(categories)) {
     it(`searches ${label} by tag without restricting its name`, () => {
@@ -186,7 +187,7 @@ it("sends walking budgets and collects agencies from every plan alternative", as
       { ...chicago, lat: 41.9 },
       new Date("2026-11-10T01:00:00Z"),
       undefined,
-      { walkDistance: 400, walkingSpeed: 1.4 },
+      { ...defaults, walkDistance: 400 },
       agencies,
     );
     const url = new URL(String(spy.mock.calls[0][0]));

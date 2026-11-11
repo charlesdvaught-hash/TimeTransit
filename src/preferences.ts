@@ -1,7 +1,21 @@
 import { chicago, type Itinerary, type Place } from "./core";
 import { readStored, writeStored } from "./storage";
-export type Preferences = { walkDistance: number; walkingSpeed: number };
-export const defaults: Preferences = { walkDistance: 800, walkingSpeed: 1.4 };
+import type { AiMode } from "./contracts";
+export type Preferences = {
+  walkDistance: number;
+  walkingSpeed: number;
+  aiMode: AiMode;
+  verifiedOnly: boolean;
+  budgetOnly: boolean;
+};
+const AI_MODES: AiMode[] = ["none", "minimal", "full"];
+export const defaults: Preferences = {
+  walkDistance: 800,
+  walkingSpeed: 1.4,
+  aiMode: "minimal",
+  verifiedOnly: false,
+  budgetOnly: false,
+};
 export function validPreferences(value: unknown): value is Preferences {
   const p = value as Preferences | null;
   return (
@@ -14,8 +28,16 @@ export function validPreferences(value: unknown): value is Preferences {
     p.walkingSpeed <= 2
   );
 }
-export function loadPreferences() {
-  return readStored("timetransit.preferences", defaults, validPreferences);
+export function loadPreferences(): Preferences {
+  // STAGE-0: older saves lack the AI/filter fields — coerce, don't reject
+  const p = readStored("timetransit.preferences", defaults, validPreferences);
+  return {
+    walkDistance: p.walkDistance,
+    walkingSpeed: p.walkingSpeed,
+    aiMode: AI_MODES.includes(p.aiMode) ? p.aiMode : defaults.aiMode,
+    verifiedOnly: p.verifiedOnly === true,
+    budgetOnly: p.budgetOnly === true,
+  };
 }
 export function savePreferences(p: Preferences) {
   writeStored("timetransit.preferences", p);

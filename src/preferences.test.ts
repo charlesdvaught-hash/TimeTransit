@@ -44,6 +44,22 @@ it("persists preferences and the last origin, tolerating corrupt and disabled st
   expect(loadOrigin()).toEqual(chicago);
   map.set("timetransit.preferences", '{"walkDistance":-10}');
   expect(loadPreferences()).toEqual(defaults);
+  // STAGE-0 migration: pre-AI saves carry only walk prefs — coerce to defaults
+  map.set("timetransit.preferences", '{"walkDistance":400,"walkingSpeed":1.1}');
+  expect(loadPreferences()).toEqual({
+    ...defaults,
+    walkDistance: 400,
+    walkingSpeed: 1.1,
+  });
+  map.set(
+    "timetransit.preferences",
+    '{"walkDistance":400,"walkingSpeed":1.1,"aiMode":"bogus","verifiedOnly":"yes"}',
+  );
+  expect(loadPreferences()).toEqual({
+    ...defaults,
+    walkDistance: 400,
+    walkingSpeed: 1.1,
+  });
   map.set("timetransit.origin", "invalid");
   expect(loadOrigin()).toEqual(chicago);
   vi.stubGlobal("localStorage", {
