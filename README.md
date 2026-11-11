@@ -69,6 +69,7 @@ Separate destinations with `+` in the one search box — e.g. `coffee + pharmacy
 - `src/useTimeTransit.ts` — the controller: all app state, explore vs `+`-separated multi-stop runs, per-stop dwells, live alternative selection, pinned places.
 - `src/reliability*.ts`, `src/storage.ts` — observation model, dedupe, weighted statistics, localStorage persistence.
 - `src/boarding.ts`, `src/useTripTracking.ts`, `src/TripTracker.tsx` — opt-in GPS boarding detector + simulation lab.
+- `src/places.ts`, `scripts/build-places-index.mjs` — Overture Maps POI index (`public/places/oc.json`, ~236k Orange County businesses, ~20 MB/4.6 MB gz, lazy + SW-cached): local business search merged into suggestions and results, independent of OSM/TomTom coverage.
 - `src/watchdog.ts` — mid-trip route watchdog (pure): while tracking, re-checks the plan every ~75 s against GTFS-RT delays — evaluates every remaining stop on the current leg plus where you're standing, alerts on a better continuation (≥3 min, sound + banner + "Switch route" re-plans via MOTIS) or a connection that is no longer catchable.
 - `src/Panel.tsx`, `src/ResultsList.tsx`, `src/MapLayer.tsx`, `src/Hud.tsx` — UI shell, unified search/results/timeline, map (dark/satellite basemaps, themed controls), journey HUD.
 - `worker/transit-relay.js` — Cloudflare Worker relay: `/v4/*` → Transit API (injects the key) and `/gtfsrt/*` → OCTA GTFS-Realtime (keyless CORS pass-through).

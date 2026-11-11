@@ -22,6 +22,7 @@ import { suggest } from "./api";
 import { categories, suggestCategories, type Place } from "./core";
 import { mergeSuggestions, nameScore, type Suggestion } from "./suggestions";
 import { tomtomSuggest } from "./tomtom";
+import { loadPlaces, searchPlaces } from "./places";
 const categoryIcons: Record<string, typeof Coffee> = {
   Coffee,
   Grocery: ShoppingBasket,
@@ -92,6 +93,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
       return;
     }
     const c = new AbortController();
+    loadPlaces(); // warm the local POI index while the user types
     const timer = setTimeout(() => {
       const types: Suggestion[] = suggestCategories(segment)
         .slice(0, 4)
@@ -107,7 +109,12 @@ export function ResultsList({ controller }: { controller: TransitController }) {
       const tomtom: Place[] = [];
       const publish = () => {
         if (c.signal.aborted) return;
-        const places = mergeSuggestions(segment, photon, tomtom);
+        const places = mergeSuggestions(
+          segment,
+          photon,
+          tomtom,
+          searchPlaces(segment, origin),
+        );
         const exact =
           places.length > 0 && nameScore(segment, places[0].label) >= 500;
         const list = (

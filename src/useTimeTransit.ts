@@ -18,6 +18,7 @@ import { search, plan, planOptions, nearby, reachable } from "./api";
 import { inCoverage, scan } from "./scan";
 import { loadScanIndex } from "./scanData";
 import { fetchTripDelays } from "./gtfsrt";
+import { loadPlaces, searchPlaces } from "./places";
 import { observation } from "./reliability";
 import { addObservations } from "./reliabilityStore";
 import {
@@ -304,9 +305,13 @@ export function useTimeTransit() {
         () => [] as ReachableStop[],
       );
       const scanPromise = loadScanIndex().catch(() => undefined);
+      loadPlaces();
       const candidates = pins[term.trim().toLowerCase()]
         ? [pins[term.trim().toLowerCase()]]
-        : await search(term, origin, c.signal);
+        : [
+            ...searchPlaces(term, origin),
+            ...(await search(term, origin, c.signal)),
+          ];
       if (c.signal.aborted) return;
       const stops = await Promise.race([
         reachPromise,
@@ -468,7 +473,11 @@ export function useTimeTransit() {
             pin: syntaxPin ?? stopPins[i],
           };
         }),
-        (query) => search(query, origin, c.signal),
+        (query) =>
+          search(query, origin, c.signal).then((r) => [
+            ...searchPlaces(query, origin),
+            ...r,
+          ]),
         (place) =>
           plan(origin, place, start, c.signal, preferences, recordProviders),
         c.signal,

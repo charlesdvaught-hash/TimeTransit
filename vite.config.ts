@@ -29,13 +29,21 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
-          globIgnores: ["**/scan/**"],
+          globIgnores: ["**/scan/**", "**/places/**"],
           runtimeCaching: [
             {
               urlPattern: /\/scan\/.*\.json$/,
               handler: "StaleWhileRevalidate",
               options: {
                 cacheName: "scan-index",
+                expiration: { maxEntries: 5, maxAgeSeconds: 604800 },
+              },
+            },
+            {
+              urlPattern: /\/places\/.*\.json$/,
+              handler: "StaleWhileRevalidate",
+              options: {
+                cacheName: "places-index",
                 expiration: { maxEntries: 5, maxAgeSeconds: 604800 },
               },
             },
