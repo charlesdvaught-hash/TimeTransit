@@ -17,7 +17,8 @@ const PROMPTS = {
     "generic venue kind), dwell_min (minutes on site), optional position " +
     "('first'|'middle'|'last'). Max 4 stops. Set round_trip when the rider " +
     "should end back at the start. Use depart_at/return_by (ISO times) " +
-    "only when the request states them.",
+    "only when the request states them; resolve relative times like " +
+    "'back by 6' against the 'Current local time' line when present.",
 };
 const PARSE_SCHEMA = {
   type: "object",

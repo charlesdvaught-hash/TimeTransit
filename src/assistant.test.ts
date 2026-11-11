@@ -88,6 +88,24 @@ describe("validateAdventure", () => {
     expect(bad({ dwell_min: "30" }).ok).toBe(false);
     expect(bad({ position: "second" }).ok).toBe(false);
   });
+  it("drops parseable-but-past timestamps rather than failing", () => {
+    const v = validateAdventure({
+      ...valid,
+      depart_at: "1999-01-01T09:00",
+      return_by: "2020-06-15T18:00:00",
+    });
+    expect(v.ok).toBe(true);
+    if (v.ok) {
+      expect(v.result.depart_at).toBeUndefined();
+      expect(v.result.return_by).toBeUndefined();
+    }
+  });
+  it("keeps future timestamps", () => {
+    const future = new Date(Date.now() + 3600e3).toISOString();
+    const v = validateAdventure({ ...valid, return_by: future });
+    expect(v.ok).toBe(true);
+    if (v.ok) expect(v.result.return_by).toBe(future);
+  });
   it("requires boolean round_trip and string-or-null optionals", () => {
     expect(validateAdventure({ ...valid, round_trip: "yes" }).ok).toBe(false);
     expect(validateAdventure({ ...valid, depart_at: 5 }).ok).toBe(false);
@@ -181,11 +199,11 @@ describe("adventureQuery", () => {
     expect(r?.stops).toHaveLength(3);
     const [url, init] = spy.mock.calls[0];
     expect(url).toBe("https://relay.test/llm");
-    expect(JSON.parse(String(init?.body))).toMatchObject({
-      task: "assist",
-      input: "museum day",
-      history,
-    });
+    const body = JSON.parse(String(init?.body));
+    expect(body).toMatchObject({ task: "assist", history });
+    expect(body.input).toMatch(
+      /^museum day\n\(Current local time: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}\)$/,
+    );
   });
   it("retries once with repair errors after invalid output", async () => {
     const spy = vi

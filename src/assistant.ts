@@ -14,6 +14,15 @@ const PREFIX: Record<string, string> = {
   last: "$",
 };
 
+// Models without a clock hallucinate dates — drop parseable but
+// already-past timestamps so they can't land in the departure control.
+function fresh(iso: unknown): string | undefined {
+  if (typeof iso !== "string") return undefined;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return undefined;
+  return t > Date.now() - 15 * 60000 ? iso : undefined;
+}
+
 export function validateAdventure(
   v: unknown,
 ): { ok: true; result: AdventurePlan } | { ok: false; errors: string[] } {
@@ -54,8 +63,8 @@ export function validateAdventure(
         position: s.position ?? undefined,
       })),
       round_trip: o.round_trip,
-      depart_at: o.depart_at ?? undefined,
-      return_by: o.return_by ?? undefined,
+      depart_at: fresh(o.depart_at),
+      return_by: fresh(o.return_by),
       notes: o.notes ?? undefined,
     },
   };
@@ -127,9 +136,13 @@ export async function adventureQuery(
 ): Promise<AdventurePlan | null> {
   const relay = import.meta.env.VITE_TRANSIT_RELAY;
   if (!relay) return null; // dev proxy can't serve /llm — degrade silently
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
   let body: Record<string, unknown> = {
     task: "assist",
-    input: message,
+    input: `${message}\n(Current local time: ${local})`,
     history,
   };
   for (let attempt = 0; attempt < 2; attempt++) {
