@@ -9,12 +9,11 @@ import {
   type Basemap,
 } from "./basemap";
 import { decode } from "./core";
-import { loadScanIndex } from "./scanData";
 import {
   advanceArrows,
   arrowField,
   arrowImage,
-  buildNetwork,
+  loadNetwork,
   type ArrowField,
 } from "./networkGeo";
 import { hasSavedOrigin } from "./preferences";
@@ -182,10 +181,10 @@ export function MapLayer({ controller }: { controller: TransitController }) {
         });
       }
     };
-    loadScanIndex()
-      .then((index) => {
-        if (!index) return;
-        ambientFC = buildNetwork(index);
+    loadNetwork()
+      .then((fc) => {
+        if (!fc) return;
+        ambientFC = fc;
         arrows = arrowField(ambientFC);
         drawAmbient();
       })

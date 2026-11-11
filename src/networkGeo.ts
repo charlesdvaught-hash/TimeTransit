@@ -1,4 +1,29 @@
+import { decode } from "./core";
 import type { ScanIndex } from "./scan";
+
+// Preferred source: public/scan/network.json (real GTFS shape geometry,
+// all agencies). Falls back to the OCTA scan index's stop sequences.
+export async function loadNetwork(): Promise<GeoJSON.FeatureCollection | null> {
+  try {
+    const r = await fetch("scan/network.json");
+    if (r.ok) {
+      const { lines } = (await r.json()) as {
+        lines: { c: string; e: string }[];
+      };
+      return {
+        type: "FeatureCollection",
+        features: lines.map((l) => ({
+          type: "Feature",
+          properties: { c: l.c },
+          geometry: { type: "LineString", coordinates: decode(l.e, 6) },
+        })),
+      };
+    }
+  } catch {}
+  const { loadScanIndex } = await import("./scanData");
+  const index = await loadScanIndex().catch(() => undefined);
+  return index ? buildNetwork(index) : null;
+}
 
 const hex = (v: string) => {
   const n = parseInt(v.replace("#", ""), 16);
