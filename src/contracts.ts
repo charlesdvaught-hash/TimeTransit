@@ -14,10 +14,22 @@ export type GooglePlaceDetail = {
   priceLevel?: 0 | 1 | 2 | 3 | 4;
   openNow?: boolean;
 };
+export type LocalEvent = {
+  id: string;
+  title: string;
+  venue: string;
+  lat: number;
+  lon: number;
+  start: string; // ISO local or UTC
+  end?: string;
+  url?: string;
+  source: "seatgeek" | "lacity" | "santamonica" | "mobilizon";
+  note?: string; // e.g. price hint, "Free", organizer
+};
 export type AdventurePlan = {
   stops: {
     query: string;
-    type: "anchor" | "category";
+    type: "anchor" | "category" | "event";
     dwell_min: number;
     position?: "first" | "middle" | "last";
   }[];

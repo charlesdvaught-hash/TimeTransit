@@ -7,8 +7,10 @@ import {
   adventureQuery,
   applyAdventure,
   describeAdventure,
+  resolveEventStops,
   type ChatMessage,
 } from "./assistant";
+import { time } from "./display";
 import type { AdventurePlan } from "./contracts";
 import type { TransitController } from "./useTimeTransit";
 
@@ -54,8 +56,8 @@ export function AdventureAssistant({
     setInput("");
     setBusy(true);
     setLog((l) => [...l, { role: "user", content: text }]);
-    const plan = await adventureQuery(text, history);
-    if (!plan) {
+    const raw = await adventureQuery(text, history);
+    if (!raw) {
       setBusy(false);
       setHistory((h) =>
         [...h, { role: "user" as const, content: text }].slice(-6),
@@ -70,7 +72,14 @@ export function AdventureAssistant({
       ]);
       return;
     }
-    const summary = `Got it: ${describeAdventure(plan)}`;
+    const { plan, events } = await resolveEventStops(raw, controller.origin);
+    const found = events.map(
+      (e) =>
+        `${e.title}${e.venue ? ` @ ${e.venue}` : ""} · ${time(new Date(e.start))}`,
+    );
+    const summary =
+      `Got it: ${describeAdventure(plan)}` +
+      (found.length ? ` — matched ${found.join("; ")}` : "");
     setHistory((h) =>
       [
         ...h,

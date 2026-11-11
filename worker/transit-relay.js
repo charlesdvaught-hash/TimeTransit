@@ -14,7 +14,9 @@ const PROMPTS = {
     "You are the adventure planner for a transit trip planner. Turn the " +
     "request into an ordered multi-stop plan. Each stop: query (search " +
     "term), type ('anchor' for a specific named place, 'category' for a " +
-    "generic venue kind), dwell_min (minutes on site), optional position " +
+    "generic venue kind, 'event' for a happening like a concert, game, " +
+    "festival, or show the user wants to attend — put the act or event " +
+    "name in query), dwell_min (minutes on site), optional position " +
     "('first'|'middle'|'last'). Max 4 stops. Set round_trip when the rider " +
     "should end back at the start. Use depart_at/return_by (ISO times) " +
     "only when the request states them; resolve relative times like " +
@@ -50,7 +52,7 @@ const ADVENTURE_SCHEMA = {
         type: "object",
         properties: {
           query: { type: "string" },
-          type: { type: "string", enum: ["anchor", "category"] },
+          type: { type: "string", enum: ["anchor", "category", "event"] },
           dwell_min: { type: "number" },
           position: {
             type: ["string", "null"],
@@ -312,6 +314,168 @@ async function gmaps(env, cors, url, ip) {
   return new Response(up.body, { status: up.status, headers: json });
 }
 
+const eventsIps = new Map();
+const eventsDay = { key: "", count: 0 };
+const stripHtml = (s) =>
+  typeof s === "string"
+    ? s
+        .replace(/<[^>]*>/g, "")
+        .replace(/&amp;/g, "&")
+        .trim()
+    : "";
+
+// Fan-out to event providers; each maps rows into the LocalEvent shape the
+// client shares with contracts.ts. Failures return [] so one dead source
+// can't sink the rest.
+async function seatgeek(env, lat, lon, q, start, end) {
+  if (!env.SEATGEEK_CLIENT_ID) return [];
+  const u =
+    `https://api.seatgeek.com/2/events?lat=${lat}&lon=${lon}&range=10mi` +
+    `&datetime_local.gte=${encodeURIComponent(start)}` +
+    `&datetime_local.lte=${encodeURIComponent(end)}` +
+    (q ? `&q=${encodeURIComponent(q)}` : "") +
+    `&per_page=15&client_id=${env.SEATGEEK_CLIENT_ID}`;
+  const j = await (await fetch(u)).json();
+  return (j.events || [])
+    .map((e) => ({
+      id: `sg-${e.id}`,
+      title: e.title,
+      venue: e.venue?.name || "",
+      lat: e.venue?.location?.lat,
+      lon: e.venue?.location?.lon,
+      start: e.datetime_local,
+      url: e.url,
+      source: "seatgeek",
+      note: e.stats?.lowest_price ? `from $${e.stats.lowest_price}` : undefined,
+    }))
+    .filter((e) => Number.isFinite(e.lat) && Number.isFinite(e.lon));
+}
+async function lacity(q, start, end) {
+  let where = `start between '${start}' and '${end}' and lat is not null`;
+  if (q)
+    where += ` and upper(title) like '%${q.replace(/'/g, "").toUpperCase()}%'`;
+  const u =
+    "https://data.lacity.org/resource/9aw9-mn4p.json?$where=" +
+    encodeURIComponent(where) +
+    "&$select=title,start,end,lat,long,url,eventcost,eventtype,street,city&$limit=15";
+  const rows = await (await fetch(u)).json();
+  return (Array.isArray(rows) ? rows : []).map((r) => ({
+    id: `la-${r.start}-${r.title?.slice(0, 24)}`,
+    title: stripHtml(r.title),
+    venue: stripHtml(r.street) || stripHtml(r.city) || "",
+    lat: Number(r.lat),
+    lon: Number(r.long),
+    start: r.start,
+    end: r.end || undefined,
+    url: r.url?.url,
+    source: "lacity",
+    note: stripHtml(r.eventcost) || stripHtml(r.eventtype) || undefined,
+  }));
+}
+async function santamonica(q, start, end) {
+  let sql =
+    `SELECT * FROM "a8ecb913-330d-4be9-a0cd-9ebbde8650de"` +
+    ` WHERE start_date >= '${start.slice(0, 10)}' AND start_date <= '${end.slice(0, 10)}'` +
+    (q ? ` AND title ILIKE '%${q.replace(/'/g, "")}%'` : "") +
+    " LIMIT 15";
+  const u =
+    "https://data.santamonica.gov/api/3/action/datastore_search_sql?sql=" +
+    encodeURIComponent(sql);
+  const j = await (await fetch(u)).json();
+  return (j.result?.records || [])
+    .map((r) => {
+      const m = /\((-?\d+\.\d+),\s*(-?\d+\.\d+)\)/.exec(r.address || "");
+      if (!m) return null;
+      return {
+        id: `sm-${r.id}`,
+        title: r.title,
+        venue: r.location || "",
+        lat: Number(m[1]),
+        lon: Number(m[2]),
+        start: r.start_date,
+        end: r.end_date !== r.start_date ? r.end_date : undefined,
+        url: r.detail_url || r.signup_url || undefined,
+        source: "santamonica",
+        note: r.event_types || undefined,
+      };
+    })
+    .filter(Boolean);
+}
+async function mobilizon(lat, lon, q, start, end) {
+  const gql = {
+    query: `{searchEvents(location:"${lon},${lat}",radius:40,${q ? `term:"${q}",` : ""}beginsOn:"${start}",endsOn:"${end}",limit:10){elements{id title beginsOn endsOn url physicalAddress{geom description locality}}}}`,
+  };
+  const r = await fetch("https://mobilizon.fr/api", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(gql),
+  });
+  const els = (await r.json()).data?.searchEvents?.elements || [];
+  return els
+    .map((e) => {
+      const g = (e.physicalAddress?.geom || "").split(/[,;]/).map(Number);
+      return {
+        id: `mz-${e.id}`,
+        title: e.title,
+        venue:
+          e.physicalAddress?.description || e.physicalAddress?.locality || "",
+        lat: g[1],
+        lon: g[0],
+        start: e.beginsOn,
+        end: e.endsOn || undefined,
+        url: e.url,
+        source: "mobilizon",
+      };
+    })
+    .filter((e) => Number.isFinite(e.lat) && Number.isFinite(e.lon));
+}
+async function events(env, cors, url, ip) {
+  const retry = bucket(eventsIps, ip, 10, 60000);
+  const day = new Date().toISOString().slice(0, 10);
+  if (eventsDay.key !== day) {
+    eventsDay.key = day;
+    eventsDay.count = 0;
+  }
+  if (retry || eventsDay.count >= 400)
+    return Response.json(
+      { error: "Rate limited" },
+      {
+        status: 429,
+        headers: { ...cors, "Retry-After": String(retry || 86400) },
+      },
+    );
+  eventsDay.count++;
+  const lat = Number(url.searchParams.get("lat")),
+    lon = Number(url.searchParams.get("lon"));
+  if (!Number.isFinite(lat) || !Number.isFinite(lon))
+    return Response.json(
+      { error: "lat and lon params required" },
+      { status: 400, headers: cors },
+    );
+  const q = (url.searchParams.get("q") || "").slice(0, 80),
+    now = Date.now(),
+    start =
+      url.searchParams.get("start") || new Date(now).toISOString().slice(0, 19),
+    end =
+      url.searchParams.get("end") ||
+      new Date(now + 14 * 864e5).toISOString().slice(0, 19);
+  const jobs = [
+    ["seatgeek", seatgeek(env, lat, lon, q, start, end)],
+    ["lacity", lacity(q, start, end)],
+    ["santamonica", santamonica(q, start, end)],
+    ["mobilizon", mobilizon(lat, lon, q, start, end)],
+  ];
+  const settled = await Promise.allSettled(jobs.map(([, j]) => j));
+  const sources = jobs.map(([n], i) =>
+    settled[i].status === "fulfilled" ? n : `${n}:down`,
+  );
+  const list = settled
+    .flatMap((s) => (s.status === "fulfilled" ? s.value : []))
+    .sort((a, b) => (a.start < b.start ? -1 : 1))
+    .slice(0, 40);
+  return Response.json({ events: list, sources }, { headers: cors });
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
@@ -338,6 +502,10 @@ export default {
     if (url.pathname === "/gmaps/text" || url.pathname === "/gmaps/details") {
       const ip = request.headers.get("CF-Connecting-IP") || "anon";
       return gmaps(env, cors, url, ip);
+    }
+    if (url.pathname === "/events") {
+      const ip = request.headers.get("CF-Connecting-IP") || "anon";
+      return events(env, cors, url, ip);
     }
     let upstream;
     if (url.pathname.startsWith("/gtfsrt/")) {

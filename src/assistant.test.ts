@@ -3,6 +3,7 @@ import {
   adventureGap,
   adventureQuery,
   applyAdventure,
+  resolveEventStops,
   validateAdventure,
   type ChatMessage,
 } from "./assistant";
@@ -87,6 +88,15 @@ describe("validateAdventure", () => {
     expect(bad({ dwell_min: Number.NaN }).ok).toBe(false);
     expect(bad({ dwell_min: "30" }).ok).toBe(false);
     expect(bad({ position: "second" }).ok).toBe(false);
+  });
+  it("accepts event as a stop type", () => {
+    const v = validateAdventure({
+      ...valid,
+      stops: [
+        { query: "concert", type: "event", dwell_min: 120, position: null },
+      ],
+    });
+    expect(v.ok).toBe(true);
   });
   it("drops parseable-but-past timestamps rather than failing", () => {
     const v = validateAdventure({
@@ -173,6 +183,65 @@ describe("adventureGap", () => {
     expect(
       adventureGap(target, chain("2026-11-10T17:59:00", "2026-11-10T17:55:00")),
     ).toBeNull();
+  });
+});
+
+describe("resolveEventStops", () => {
+  const origin = { id: "o", name: "o", lat: 33.8, lon: -117.9 };
+  beforeEach(() => {
+    vi.stubEnv("VITE_TRANSIT_RELAY", "https://relay.test");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+  const gig = {
+    id: "sg-1",
+    title: "Jazz in the Park",
+    venue: "Hart Park",
+    lat: 33.82,
+    lon: -117.91,
+    start: "2026-11-15T19:00",
+    end: "2026-11-15T22:00",
+    source: "seatgeek" as const,
+  };
+  it("swaps a matched event stop for its venue anchor + real duration", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      llmResponse({ events: [gig] }),
+    );
+    const r = await resolveEventStops(
+      plan({
+        stops: [{ query: "jazz concert", type: "event", dwell_min: 60 }],
+      }),
+      origin,
+    );
+    expect(r.events).toHaveLength(1);
+    expect(r.plan.stops[0]).toMatchObject({
+      type: "anchor",
+      query: "Hart Park",
+      dwell_min: 180,
+    });
+  });
+  it("degrades an unmatched event stop to a category", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      llmResponse({ events: [] }),
+    );
+    const r = await resolveEventStops(
+      plan({
+        stops: [{ query: "opera gala", type: "event", dwell_min: 90 }],
+      }),
+      origin,
+    );
+    expect(r.events).toHaveLength(0);
+    expect(r.plan.stops[0].type).toBe("category");
+    expect(r.plan.stops[0].dwell_min).toBe(90);
+  });
+  it("passes plans with no event stops through untouched", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    const p = plan();
+    const r = await resolveEventStops(p, origin);
+    expect(r.plan).toBe(p);
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 

@@ -1,9 +1,10 @@
 // STAGE-6: adventure-planner bridge to the relay's /llm "assist" task.
 // Pure validation/mapping plus one network call; every failure path
 // returns null so the chat panel degrades to a plain text reply.
-import type { AdventurePlan } from "./contracts";
-import type { Pin, TripChain } from "./core";
+import type { AdventurePlan, LocalEvent } from "./contracts";
+import { distance, type Pin, type Place, type TripChain } from "./core";
 import { time } from "./display";
+import { searchEvents } from "./events";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -39,8 +40,10 @@ export function validateAdventure(
         return errors.push(`stops[${i}] must be an object`);
       if (typeof s.query !== "string" || !s.query.trim())
         errors.push(`stops[${i}].query must be a non-empty string`);
-      if (s.type !== "anchor" && s.type !== "category")
-        errors.push(`stops[${i}].type must be "anchor" or "category"`);
+      if (s.type !== "anchor" && s.type !== "category" && s.type !== "event")
+        errors.push(
+          `stops[${i}].type must be "anchor", "category", or "event"`,
+        );
       if (!Number.isFinite(s.dwell_min))
         errors.push(`stops[${i}].dwell_min must be a finite number`);
       if (s.position != null && !POSITIONS.has(s.position))
@@ -127,6 +130,63 @@ export function adventureGap(
   return over > 0
     ? `ends ${over} min after your ${time(new Date(target))} target`
     : null;
+}
+
+// Event stops: rank relay hits by token overlap, then proximity. A
+// matched event swaps its venue in as an anchor and, when the source
+// reports a duration, replaces dwell_min with the real show length.
+function eventScore(e: LocalEvent, query: string, origin: Place): number {
+  const tokens = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 2);
+  const hay = `${e.title} ${e.venue}`.toLowerCase();
+  const hits = tokens.filter((t) => hay.includes(t)).length;
+  return hits * 100 - distance(origin, e);
+}
+export async function resolveEventStops(
+  plan: AdventurePlan,
+  origin: Place,
+  signal?: AbortSignal,
+): Promise<{ plan: AdventurePlan; events: LocalEvent[] }> {
+  const idx = plan.stops
+    .map((s, i) => (s.type === "event" ? i : -1))
+    .filter((i) => i >= 0);
+  if (!idx.length) return { plan, events: [] };
+  const events: LocalEvent[] = [];
+  const stops = [...plan.stops];
+  for (const i of idx) {
+    const s = stops[i];
+    const candidates = await searchEvents(origin, {
+      start: plan.depart_at,
+      end: plan.return_by,
+      query: s.query,
+      signal,
+    });
+    const best = candidates
+      .map((e) => ({ e, score: eventScore(e, s.query, origin) }))
+      .sort((a, b) => b.score - a.score)[0];
+    if (best && best.score > 0) {
+      events.push(best.e);
+      const mins =
+        best.e.end &&
+        Number.isFinite(Date.parse(best.e.start)) &&
+        Number.isFinite(Date.parse(best.e.end))
+          ? Math.round(
+              (Date.parse(best.e.end) - Date.parse(best.e.start)) / 60000,
+            )
+          : undefined;
+      stops[i] = {
+        ...s,
+        type: "anchor",
+        query: best.e.venue || best.e.title,
+        dwell_min: mins && mins > 0 && mins <= 600 ? mins : s.dwell_min,
+      };
+    } else {
+      stops[i] = { ...s, type: "category" }; // no match — fall back to a kind
+    }
+  }
+  return { plan: { ...plan, stops }, events };
 }
 
 export async function adventureQuery(
