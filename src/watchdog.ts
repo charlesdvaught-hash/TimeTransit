@@ -77,14 +77,22 @@ const delayMsAt = (
   return 0;
 };
 
-// where is the bus for this leg right now? leg -> index trip -> live position
+// where is the bus for this leg right now? leg -> index trip -> live
+// position, plus how far it is and when it'll reach the target stop.
 export function liveBusFor(
   index: ScanIndex,
   leg: Leg,
   vehicles: Map<string, VehiclePos>,
+  delays: TripDelays | undefined,
   now: number,
   tz = "America/Los_Angeles",
-): { lat: number; lon: number; bearing?: number } | null {
+): {
+  lat: number;
+  lon: number;
+  bearing?: number;
+  stopsAway?: number;
+  eta?: number;
+} | null {
   const fromIdx = near(index, leg.from),
     toIdx = near(index, leg.to);
   if (fromIdx < 0 || toIdx < 0) return null;
@@ -96,7 +104,24 @@ export function liveBusFor(
     Date.parse(leg.scheduledStartTime || leg.startTime),
   );
   const v = m?.trip.i ? vehicles.get(m.trip.i) : undefined;
-  return v ? { lat: v.lat, lon: v.lon, bearing: v.bearing } : null;
+  if (!v || !m) return null;
+  const stops = index.patterns[m.pi].stops;
+  const target = stops.indexOf(toIdx, m.pos);
+  // closest pattern stop to the vehicle = where it is on the route
+  let at = m.pos;
+  for (let i = 0; i < stops.length; i++)
+    if (
+      haversine(v, index.stops[stops[i]]) < haversine(v, index.stops[stops[at]])
+    )
+      at = i;
+  const stopsAway = Math.max(0, target - at);
+  // scheduled arrival at the target stop + reported delay (delayMsAt
+  // returns 0 when the feed has no update — sched stands as fallback)
+  const sched = m.trip.base + m.trip.t[target] * 1000;
+  const eta =
+    sched +
+    delayMsAt(delays?.get(m.trip.i!), index.stops[stops[target]].i, sched);
+  return { lat: v.lat, lon: v.lon, bearing: v.bearing, stopsAway, eta };
 }
 
 export function watchJourney(opts: {

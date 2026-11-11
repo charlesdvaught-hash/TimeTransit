@@ -45,6 +45,10 @@ export function TripTracker({
     [index, setIndex] = useState(0),
     [message, setMessage] = useState(""),
     [notice, setNotice] = useState<WatchdogResult>(null),
+    [busInfo, setBusInfo] = useState<{
+      stopsAway?: number;
+      eta?: number;
+    } | null>(null),
     lastNotice = useRef("");
   const transit = legs.filter(transitLeg);
 
@@ -63,12 +67,15 @@ export function TripTracker({
       if (!alive) return;
       const leg = transit[w.legIndex];
       let bus =
-        vehicles && leg ? liveBusFor(index, leg, vehicles, Date.now()) : null;
+        vehicles && leg
+          ? liveBusFor(index, leg, vehicles, delays, Date.now())
+          : null;
       // GTFS-RT has no match (non-OCTA leg or missing trip) — try
       // Transit's vehicle feed, which covers all agencies it serves.
       if (!bus && leg)
         bus = (await liveVehicle(leg).catch(() => undefined)) ?? null;
       onBus?.(bus);
+      setBusInfo(bus);
       const r = watchJourney({
         index,
         legs,
@@ -97,6 +104,7 @@ export function TripTracker({
   useEffect(() => {
     if (!tracking.active) {
       setNotice(null);
+      setBusInfo(null);
       lastNotice.current = "";
       onBus?.(null);
     }
@@ -164,6 +172,15 @@ export function TripTracker({
             : "Select a bus or train journey to track boarding")}
       </p>
       {tracking.error && <p role="alert">{tracking.error}</p>}
+      {busInfo?.eta && tracking.active && (
+        <p className="bus-eta" role="status">
+          Your bus
+          {busInfo.stopsAway !== undefined && busInfo.stopsAway > 0
+            ? ` is ${busInfo.stopsAway} stop${busInfo.stopsAway === 1 ? "" : "s"} away`
+            : ""}{" "}
+          · arrives ~{time(new Date(busInfo.eta))}
+        </p>
+      )}
       {notice && tracking.active && (
         <p className="reroute-notice" role="alert">
           {notice.kind === "better" ? (
