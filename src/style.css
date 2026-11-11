@@ -3,6 +3,23 @@
 }
 :root {
   color-scheme: dark;
+  /* glass panes — --pane-alpha is set live from preferences */
+  --pane-alpha: 0.62;
+  --pane-alpha-strong: min(0.97, var(--pane-alpha) + 0.18);
+  --pane-rgb: 11 18 26;
+  --pane-tint: #6fc0ff1c;
+}
+:root[data-theme="ember"] {
+  --pane-rgb: 30 14 8;
+  --pane-tint: #ff9a5c21;
+}
+:root[data-theme="forest"] {
+  --pane-rgb: 8 24 16;
+  --pane-tint: #5cffb01c;
+}
+:root[data-theme="dusk"] {
+  --pane-rgb: 20 12 30;
+  --pane-tint: #b58cff21;
 }
 body {
   margin: 0;
@@ -70,7 +87,7 @@ select option {
   padding: 3px;
   border: 1px solid #ffffff1a;
   border-radius: 11px;
-  background: #0c151fee;
+  background: rgb(var(--pane-rgb) / var(--pane-alpha-strong));
   backdrop-filter: blur(16px);
   box-shadow: 0 8px 24px #0006;
 }
@@ -107,7 +124,7 @@ select option {
   height: 34px;
   border: 1px solid #ffffff1a;
   border-radius: 9px;
-  background: #0c151fee;
+  background: rgb(var(--pane-rgb) / var(--pane-alpha-strong));
   color: #cfe2f5;
   backdrop-filter: blur(16px);
   box-shadow: 0 6px 18px #0006;
@@ -195,8 +212,12 @@ header {
   bottom: 24px;
   width: 390px;
   background:
-    radial-gradient(120% 60% at 0% 0%, #6fc0ff1c, transparent 58%),
-    linear-gradient(160deg, #1a2634b8, #0a1219cc);
+    radial-gradient(120% 60% at 0% 0%, var(--pane-tint), transparent 58%),
+    linear-gradient(
+      160deg,
+      rgb(var(--pane-rgb) / var(--pane-alpha)),
+      rgb(var(--pane-rgb) / var(--pane-alpha-strong))
+    );
   backdrop-filter: blur(28px) saturate(145%);
   -webkit-backdrop-filter: blur(28px) saturate(145%);
   border: 1px solid #ffffff26;
@@ -346,7 +367,7 @@ header {
   padding: 5px;
   max-height: 264px;
   overflow-y: auto;
-  background: #0b121bf8;
+  background: rgb(var(--pane-rgb) / var(--pane-alpha-strong));
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   border: 1px solid #ffffff24;
@@ -1090,7 +1111,7 @@ footer .live-dot {
   border-radius: 10px;
   margin-bottom: 10px;
   font-size: 11px;
-  background: #17233399;
+  background: rgb(var(--pane-rgb) / 0.55);
 }
 .utility-panel summary {
   cursor: pointer;
@@ -1242,7 +1263,7 @@ footer .live-dot {
   padding: 18px 23px;
   border: 1px solid #ffffff1a;
   border-radius: 15px;
-  background: #101a25ee;
+  background: rgb(var(--pane-rgb) / var(--pane-alpha-strong));
   backdrop-filter: blur(20px);
   box-shadow: 0 10px 40px #0007;
 }
@@ -1555,7 +1576,9 @@ button:hover {
   bottom: 12px;
   right: 12px;
   z-index: 5;
-  background: rgba(10, 18, 30, 0.8);
+  background: rgb(var(--pane-rgb) / var(--pane-alpha-strong));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: 8px;
   padding: 5px 8px;
 }
@@ -1622,7 +1645,9 @@ button:hover {
   width: 250px;
   max-height: 55vh;
   overflow-y: auto;
-  background: rgba(10, 18, 30, 0.92);
+  background: rgb(var(--pane-rgb) / var(--pane-alpha-strong));
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   border: 1px solid #233246;
   border-radius: 10px;
   padding: 10px 12px;

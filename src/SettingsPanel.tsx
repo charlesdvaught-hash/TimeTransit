@@ -2,6 +2,7 @@ import { PreferencesPanel } from "./PreferencesPanel";
 import { ReliabilityPanel } from "./ReliabilityPanel";
 import type { AiMode } from "./contracts";
 import { gmapsConfigured } from "./gmaps";
+import type { Preferences } from "./preferences";
 import type { TransitController } from "./useTimeTransit";
 const tomtom = import.meta.env.VITE_TOMTOM_API_KEY || "";
 const MODES: { id: AiMode; label: string; hint: string }[] = [
@@ -66,6 +67,44 @@ export function SettingsPanel({
         <small className="settings-hint">
           Ratings &amp; price levels populate from Google when available — shown
           on a place once selected; Budget dims pricey places as details arrive.
+        </small>
+      </details>
+      <details className="utility-panel">
+        <summary>
+          Appearance <span>{p.theme}</span>
+        </summary>
+        <label>
+          Color theme{" "}
+          <select
+            value={p.theme}
+            onChange={(e) =>
+              setPreferences({
+                ...p,
+                theme: e.target.value as Preferences["theme"],
+              })
+            }
+          >
+            <option value="ocean">Ocean</option>
+            <option value="ember">Ember</option>
+            <option value="forest">Forest</option>
+            <option value="dusk">Dusk</option>
+          </select>
+        </label>
+        <label>
+          Pane opacity: <strong>{Math.round(p.paneAlpha * 100)}%</strong>
+          <input
+            type="range"
+            min="40"
+            max="95"
+            step="5"
+            value={Math.round(p.paneAlpha * 100)}
+            onChange={(e) =>
+              setPreferences({ ...p, paneAlpha: Number(e.target.value) / 100 })
+            }
+          />
+        </label>
+        <small className="settings-hint">
+          Lower values let more of the map show through (frosted glass).
         </small>
       </details>
       <PreferencesPanel controller={controller} />

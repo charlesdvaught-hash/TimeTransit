@@ -31,6 +31,7 @@ import {
 } from "./transit";
 import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
 import {
+  applyTheme,
   loadOrigin,
   loadPreferences,
   saveOrigin,
@@ -193,6 +194,7 @@ export function useTimeTransit() {
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
     );
   }
+  useEffect(() => applyTheme(preferences), [preferences]);
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 15000);
     return () => clearInterval(timer);

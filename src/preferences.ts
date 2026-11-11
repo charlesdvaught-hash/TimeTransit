@@ -7,7 +7,11 @@ export type Preferences = {
   aiMode: AiMode;
   verifiedOnly: boolean;
   budgetOnly: boolean;
+  theme: PaneTheme;
+  paneAlpha: number;
 };
+export type PaneTheme = "ocean" | "ember" | "forest" | "dusk";
+const THEMES: PaneTheme[] = ["ocean", "ember", "forest", "dusk"];
 const AI_MODES: AiMode[] = ["none", "minimal", "full"];
 export const defaults: Preferences = {
   walkDistance: 800,
@@ -15,6 +19,8 @@ export const defaults: Preferences = {
   aiMode: "minimal",
   verifiedOnly: false,
   budgetOnly: false,
+  theme: "ocean",
+  paneAlpha: 0.62,
 };
 export function validPreferences(value: unknown): value is Preferences {
   const p = value as Preferences | null;
@@ -37,7 +43,20 @@ export function loadPreferences(): Preferences {
     aiMode: AI_MODES.includes(p.aiMode) ? p.aiMode : defaults.aiMode,
     verifiedOnly: p.verifiedOnly === true,
     budgetOnly: p.budgetOnly === true,
+    theme: THEMES.includes(p.theme) ? p.theme : defaults.theme,
+    paneAlpha:
+      Number.isFinite(p.paneAlpha) && p.paneAlpha >= 0.4 && p.paneAlpha <= 0.95
+        ? p.paneAlpha
+        : defaults.paneAlpha,
   };
+}
+export function applyTheme(p: Preferences) {
+  if (typeof document === "undefined") return;
+  document.documentElement.dataset.theme = p.theme;
+  document.documentElement.style.setProperty(
+    "--pane-alpha",
+    String(p.paneAlpha),
+  );
 }
 export function savePreferences(p: Preferences) {
   writeStored("timetransit.preferences", p);
