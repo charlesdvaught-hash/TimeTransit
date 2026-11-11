@@ -38,7 +38,10 @@ export function Hud({ controller }: { controller: TransitController }) {
               : ""}
         </span>
       </div>
-      <TripTracker legs={legs} />
+      <TripTracker
+        legs={legs}
+        onApply={chain ? undefined : controller.reroute}
+      />
     </div>
   );
 }

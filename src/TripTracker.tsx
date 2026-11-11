@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Leg } from "./core";
 import {
   transitLeg,
@@ -9,12 +9,83 @@ import {
 import { useTripTracking } from "./useTripTracking";
 import { addObservations } from "./reliabilityStore";
 import { observation } from "./reliability";
-export function TripTracker({ legs }: { legs: Leg[] }) {
+import { fetchTripDelays } from "./gtfsrt";
+import { loadScanIndex } from "./scanData";
+import { inCoverage } from "./scan";
+import { watchJourney, type WatchdogResult } from "./watchdog";
+import { time } from "./display";
+
+function alertPing() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    osc.frequency.value = 880;
+    osc.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+    setTimeout(() => ctx.close(), 500);
+  } catch {
+    /* audio blocked until user gesture */
+  }
+  navigator.vibrate?.([180, 80, 180]);
+}
+
+export function TripTracker({
+  legs,
+  onApply,
+}: {
+  legs: Leg[];
+  onApply?: (from: { lat: number; lon: number }, at: number) => void;
+}) {
   const tracking = useTripTracking(legs),
     [delay, setDelay] = useState(4),
     [index, setIndex] = useState(0),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [notice, setNotice] = useState<WatchdogResult>(null),
+    lastNotice = useRef("");
   const transit = legs.filter(transitLeg);
+
+  // watchdog: while tracking, re-check the plan against realtime delays
+  const w = tracking.watch;
+  useEffect(() => {
+    if (!tracking.active || !w?.fix) return;
+    let alive = true;
+    const tick = async () => {
+      const index = await loadScanIndex().catch(() => undefined);
+      if (!alive || !index || !inCoverage(index, w.fix)) return;
+      const delays = await fetchTripDelays().catch(() => undefined);
+      if (!alive) return;
+      const r = watchJourney({
+        index,
+        legs,
+        transitIndex: w.legIndex,
+        phase: w.phase === "alighted" ? "waiting" : w.phase,
+        position: { lat: w.fix.lat, lon: w.fix.lon },
+        now: Date.now(),
+        delays,
+      });
+      if (alive && r) {
+        const key = `${r.kind}|${r.hint}`;
+        if (key !== lastNotice.current) {
+          lastNotice.current = key;
+          alertPing();
+        }
+        setNotice(r);
+      }
+    };
+    tick();
+    const timer = setInterval(tick, 75000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [tracking.active, w?.phase, w?.legIndex]);
+  useEffect(() => {
+    if (!tracking.active) {
+      setNotice(null);
+      lastNotice.current = "";
+    }
+  }, [tracking.active]);
   const simulation =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("simulate") === "1";
@@ -78,6 +149,43 @@ export function TripTracker({ legs }: { legs: Leg[] }) {
             : "Select a bus or train journey to track boarding")}
       </p>
       {tracking.error && <p role="alert">{tracking.error}</p>}
+      {notice && tracking.active && (
+        <p className="reroute-notice" role="alert">
+          {notice.kind === "better" ? (
+            <>
+              Faster now: {notice.hint} · arrive {time(new Date(notice.eta))} (−
+              {notice.savesMin} min)
+              {onApply && (
+                <button
+                  onClick={() => {
+                    if (tracking.watch?.fix)
+                      onApply(
+                        {
+                          lat: tracking.watch.fix.lat,
+                          lon: tracking.watch.fix.lon,
+                        },
+                        Date.now(),
+                      );
+                    setNotice(null);
+                  }}
+                >
+                  Switch route
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              Heads up: {notice.hint}
+              {notice.eta
+                ? ` · best fallback arrives ${time(new Date(notice.eta))}`
+                : ""}
+            </>
+          )}
+          <button aria-label="Dismiss" onClick={() => setNotice(null)}>
+            ×
+          </button>
+        </p>
+      )}
       {simulation && (
         <details className="simulation-controls">
           <summary>Simulation lab · synthetic data only</summary>

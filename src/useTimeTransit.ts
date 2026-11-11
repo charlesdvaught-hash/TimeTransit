@@ -531,6 +531,22 @@ export function useTimeTransit() {
   }
   const trip = liveChoice?.trip ?? selected?.trip ?? null;
   const delay = liveChoice?.delay ?? 0;
+
+  // mid-trip reroute: replace the selected journey with the best plan from
+  // the rider's current position (watchdog "Switch route" action)
+  async function reroute(from: { lat: number; lon: number }, at: number) {
+    if (!selected || chain) return;
+    const opts = await planOptions(
+      { id: "reroute", name: "Current location", ...from },
+      selected.place,
+      new Date(at),
+      undefined,
+      preferences,
+    ).catch(() => undefined);
+    if (!opts?.length) return;
+    setLiveChoice(null);
+    setSelected({ ...selected, trip: opts[0], alternatives: opts.slice(1) });
+  }
   const arrival = trip
     ? new Date(Date.parse(trip.endTime) + delay * 1000).toISOString()
     : null;
@@ -588,6 +604,7 @@ export function useTimeTransit() {
     run,
     addToTrip,
     pinPlace,
+    reroute,
     total,
   };
 }

@@ -80,7 +80,7 @@ function active(svc: ScanService, ymd: string, weekday: number) {
   return on;
 }
 
-const haversine = (
+export const haversine = (
   a: { lat: number; lon: number },
   b: { la: number; lo: number },
 ) => {
@@ -124,7 +124,11 @@ const activeCache = new WeakMap<
   ScanIndex,
   Map<string, { base: number; i?: string; t: number[] }[][]>
 >();
-function activeTripsFor(index: ScanIndex, tz: string, departEpochMs: number) {
+export function activeTripsFor(
+  index: ScanIndex,
+  tz: string,
+  departEpochMs: number,
+) {
   const { midnightEpoch } = localDay(departEpochMs, tz);
   const key = `${tz}|${midnightEpoch}`;
   let perDay = activeCache.get(index);

@@ -846,6 +846,23 @@ footer .live-dot {
   margin: 10px 0;
   line-height: 1.6;
 }
+.reroute-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: #1c2f1e;
+  border: 1px solid #2f6b3a;
+  border-radius: 10px;
+  color: #a8e6b1;
+  padding: 8px 10px;
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.reroute-notice button {
+  padding: 4px 10px;
+  font-size: 12px;
+}
 .trip-tracker > small {
   display: block;
   color: #859bb3;

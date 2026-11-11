@@ -14,7 +14,15 @@ import { time } from "./display";
 export function useTripTracking(legs: Leg[]) {
   const [status, setStatus] = useState(""),
     [active, setActive] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [watch, setWatch] = useState<
+      | {
+          phase: "approaching" | "waiting" | "boarded" | "alighted";
+          legIndex: number;
+          fix: Fix;
+        }
+      | undefined
+    >();
   const cleanup = useRef<(() => void) | null>(null);
   const signature = legs
     .filter(transitLeg)
@@ -64,6 +72,7 @@ export function useTripTracking(legs: Leg[]) {
       if (!leg) return;
       const before = state.phase;
       state = updateBoarding(state, fix, leg);
+      setWatch({ phase: state.phase, legIndex: index, fix });
       const prefix = simulate ? "SIMULATED · " : "";
       if (state.phase === "waiting")
         setStatus(
@@ -144,5 +153,5 @@ export function useTripTracking(legs: Leg[]) {
       cleanup.current = () => navigator.geolocation.clearWatch(id);
     }
   }
-  return { start, stop, status, active, error };
+  return { start, stop, status, active, error, watch };
 }
