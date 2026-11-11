@@ -62,7 +62,9 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     // Ambient route network — every OCTA stop-to-stop hop, deduped.
     let ambientFC: GeoJSON.FeatureCollection | null = null;
     const drawAmbient = () => {
-      if (!ambientFC || !m.isStyleLoaded()) return;
+      // getStyle() is enough — isStyleLoaded() stays false while tiles
+      // stream in, which would drop every call.
+      if (!ambientFC || !m.getStyle()) return;
       if (m.getLayer("ambient-glow")) m.removeLayer("ambient-glow");
       if (m.getLayer("ambient-core")) m.removeLayer("ambient-core");
       if (m.getLayer("ambient-line")) m.removeLayer("ambient-line");
