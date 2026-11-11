@@ -42,6 +42,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     changeOrigin,
     locate,
     liveBus,
+    hover,
   } = controller;
   const mapNode = useRef<HTMLDivElement>(null);
   const pickRef = useRef(picking);
@@ -630,6 +631,23 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       markers.forEach((x) => x.remove());
     };
   }, [origin, results, selected, trip, chain, basemap, liveBus]);
+  // hover preview — suggestion branches or a result + its nearby neighbors
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !hover.length) return;
+    const markers: maplibregl.Marker[] = [];
+    hover.slice(0, 14).forEach((p, i) => {
+      const el = document.createElement("div");
+      el.className = i === 0 ? "hover-pin primary" : "hover-pin";
+      el.title = p.name;
+      markers.push(
+        new maplibregl.Marker({ element: el })
+          .setLngLat([p.lon, p.lat])
+          .addTo(m),
+      );
+    });
+    return () => markers.forEach((x) => x.remove());
+  }, [hover]);
   const choose = (b: Basemap) => {
     setBasemap(b);
     saveBasemap(b);

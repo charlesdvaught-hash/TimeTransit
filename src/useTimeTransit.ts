@@ -68,6 +68,7 @@ export function useTimeTransit() {
     [dwells, updateDwells] = useState<number[]>([]),
     [stopPins, updateStopPins] = useState<(Pin | undefined)[]>([]),
     [pinned, setPinned] = useState<Record<string, Place>>({}),
+    [hover, setHover] = useState<Place[]>([]),
     [back, updateBack] = useState(true),
     [chain, setChain] = useState<TripChain | null>(null),
     [chainNote, setChainNote] = useState(""),
@@ -622,6 +623,8 @@ export function useTimeTransit() {
     pinPlace,
     reroute,
     total,
+    hover,
+    setHover,
   };
 }
 export type TransitController = ReturnType<typeof useTimeTransit>;

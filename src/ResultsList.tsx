@@ -19,7 +19,12 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { suggest } from "./api";
-import { categories, suggestCategories, type Place } from "./core";
+import {
+  categories,
+  distance,
+  suggestCategories,
+  type Place,
+} from "./core";
 import { mergeSuggestions, nameScore, type Suggestion } from "./suggestions";
 import { tomtomSuggest } from "./tomtom";
 import { loadPlaces, searchPlaces } from "./places";
@@ -74,6 +79,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
     run,
     addToTrip,
     pinPlace,
+    setHover,
   } = controller;
   const [focused, setFocused] = useState(false);
   const [caret, setCaret] = useState(0);
@@ -118,6 +124,25 @@ export function ResultsList({ controller }: { controller: TransitController }) {
         if (settled || --pending > 0 || c.signal.aborted) return;
         settled = true;
         const places = mergeSuggestions(segment, photon, tomtom, local);
+        // generic-term intent: when matches are kind-led (real comic shops,
+        // not names containing 'comic'), offer a row that keeps the search
+        // broad — the optimizer then weighs every venue combination
+        const kindLed = local.filter(
+          (p) =>
+            p.kind &&
+            nameScore(segment, p.kind) >= 300 &&
+            nameScore(segment, p.kind) > nameScore(segment, p.name),
+        );
+        const covered = types.some(
+          (t) => nameScore(segment, t.label) >= 400,
+        );
+        if (kindLed.length >= 2 && !covered)
+          types.push({
+            id: "type-any",
+            kind: "type",
+            label: segment,
+            detail: `All ~${kindLed.length} nearby matches`,
+          });
         const exact =
           places.length > 0 && nameScore(segment, places[0].label) >= 500;
         const list = (
@@ -158,6 +183,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
       if (cap) clearTimeout(cap);
       c.abort();
       setSearching(false);
+      setHover([]);
     };
   }, [segment, focused, origin]);
   function choose(s: Suggestion) {
@@ -166,6 +192,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
     const next = parts.map((p) => p.trim()).join(" + ");
     setQuery(next);
     setFocused(false);
+    setHover([]);
     // keep same-family names reachable: fat-fingered picks get "did you mean"
     setAlts(
       suggestions
@@ -244,6 +271,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
             className="suggestions"
             id="destination-suggestions"
             role="listbox"
+            onMouseLeave={() => setHover([])}
           >
             {suggestions.map((s, i) => {
               const Icon =
@@ -256,7 +284,10 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                   role="option"
                   aria-selected={i === active}
                   className={i === active ? "active" : ""}
-                  onMouseEnter={() => setActive(i)}
+                  onMouseEnter={() => {
+                    setActive(i);
+                    setHover(s.places ?? (s.place ? [s.place] : []));
+                  }}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => choose(s)}
                 >
@@ -421,7 +452,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
           )}
         </div>
       )}
-      <div className="results">
+      <div className="results" onMouseLeave={() => setHover([])}>
         {results.map((r, i) => {
           const shown = selected === r && activeTrip ? activeTrip : r.trip;
           return (
@@ -433,6 +464,17 @@ export function ResultsList({ controller }: { controller: TransitController }) {
             >
               <button
                 className="result-main"
+                onMouseEnter={() =>
+                  setHover([
+                    r.place,
+                    ...results
+                      .filter(
+                        (o) =>
+                          o !== r && distance(o.place, r.place) <= 1,
+                      )
+                      .map((o) => o.place),
+                  ])
+                }
                 onClick={() => {
                   setSelected(r);
                   setChain(null);

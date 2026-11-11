@@ -1290,6 +1290,36 @@ button:hover {
   opacity: 0.8;
   flex-shrink: 0;
 }
+.hover-pin {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ffd166;
+  border: 2.5px solid #0b121b;
+  box-shadow:
+    0 0 0 2px #ffd16655,
+    0 2px 8px #0009;
+  animation: hover-pop 0.18s ease-out;
+}
+.hover-pin.primary {
+  width: 17px;
+  height: 17px;
+  background: #ffb020;
+  box-shadow:
+    0 0 0 3px #ffb02055,
+    0 0 16px #ffb02099;
+}
+@keyframes hover-pop {
+  from {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hover-pin {
+    animation: none;
+  }
+}
 .bus-eta {
   color: #9fd8a8;
   font-size: 13px;
