@@ -184,7 +184,15 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           layout: { "line-cap": "round" },
           paint: {
             "line-color": "#0a0f16",
-            "line-width": 5,
+            "line-width": [
+              "interpolate",
+              ["exponential", 1.5],
+              ["zoom"],
+              10,
+              2,
+              15,
+              9,
+            ],
             "line-opacity": 0.55,
           },
         });
@@ -195,7 +203,15 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           layout: { "line-cap": "round" },
           paint: {
             "line-color": "#f5e9c8",
-            "line-width": 1.8,
+            "line-width": [
+              "interpolate",
+              ["exponential", 1.5],
+              ["zoom"],
+              10,
+              0.8,
+              15,
+              3.5,
+            ],
             "line-opacity": 0.75,
           },
         });
@@ -210,7 +226,15 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           source: "ambient-arrows",
           layout: {
             "icon-image": "net-arrow",
-            "icon-size": 0.55,
+            "icon-size": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              10,
+              0.3,
+              15,
+              0.7,
+            ],
             "icon-rotate": ["get", "rot"],
             "icon-rotation-alignment": "map",
             "icon-allow-overlap": true,
@@ -226,9 +250,17 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
             "line-color": ["get", "c"],
-            "line-width": 8,
-            "line-blur": 7,
-            "line-opacity": 0.28,
+            "line-width": [
+              "interpolate",
+              ["exponential", 1.5],
+              ["zoom"],
+              10,
+              3,
+              15,
+              16,
+            ],
+            "line-blur": 8,
+            "line-opacity": 0.38,
           },
         });
         m.addLayer({
@@ -238,8 +270,16 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
             "line-color": ["get", "c"],
-            "line-width": 2,
-            "line-opacity": 0.55,
+            "line-width": [
+              "interpolate",
+              ["exponential", 1.5],
+              ["zoom"],
+              10,
+              1,
+              15,
+              4.5,
+            ],
+            "line-opacity": 0.65,
           },
         });
         m.addLayer({
@@ -249,7 +289,15 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           layout: { "line-cap": "round" },
           paint: {
             "line-color": "#dff0ff",
-            "line-width": 2.5,
+            "line-width": [
+              "interpolate",
+              ["exponential", 1.5],
+              ["zoom"],
+              10,
+              1.2,
+              15,
+              4,
+            ],
             "line-opacity": 0.9,
             "line-dasharray": FLOW[0],
           },

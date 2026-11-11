@@ -14,7 +14,7 @@ export async function loadNetwork(): Promise<GeoJSON.FeatureCollection | null> {
         type: "FeatureCollection",
         features: lines.map((l) => ({
           type: "Feature",
-          properties: { c: l.c, n: l.n, a: l.a },
+          properties: { c: lift(l.c), n: l.n, a: l.a },
           geometry: { type: "LineString", coordinates: decode(l.e, 6) },
         })),
       };
@@ -28,6 +28,17 @@ export async function loadNetwork(): Promise<GeoJSON.FeatureCollection | null> {
 const hex = (v: string) => {
   const n = parseInt(v.replace("#", ""), 16);
   return isNaN(n) ? [77, 163, 255] : [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+// lift colors that are unreadable on dark basemaps (Metro's #0060a8,
+// near-black #000000) toward a bright sibling of the same hue
+const lift = (v: string) => {
+  const [r, g, b] = hex(v);
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  if (lum >= 105) return v.startsWith("#") ? v : `#${v}`;
+  const t = Math.min(0.72, (105 - lum) / 105 + 0.25);
+  const m = (c: number, hi: number) => Math.round(c + (hi - c) * t);
+  const to = (n: number) => n.toString(16).padStart(2, "0");
+  return `#${to(m(r, 140))}${to(m(g, 200))}${to(m(b, 255))}`;
 };
 // soften a raw GTFS route color toward the ambient blue — subtle
 // per-route tinting without a rainbow map
