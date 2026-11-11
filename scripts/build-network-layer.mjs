@@ -13,11 +13,33 @@ const dirs = args.map((a) => {
   return { dir, color: color || "4da3ff" };
 });
 
+// RFC4180-ish: quoted fields may contain commas and doubled quotes
+const splitRow = (r) => {
+  const out = [];
+  let cur = "",
+    q = false;
+  for (let i = 0; i < r.length; i++) {
+    const c = r[i];
+    if (q) {
+      if (c === '"' && r[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else if (c === '"') q = false;
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") {
+      out.push(cur);
+      cur = "";
+    } else cur += c;
+  }
+  out.push(cur);
+  return out;
+};
 const csv = (path) => {
   const rows = readFileSync(path, "utf8").trim().split("\n");
-  const head = rows[0].split(",").map((h) => h.trim().replace(/^\uFEFF/, ""));
+  const head = splitRow(rows[0]).map((h) => h.trim().replace(/^\uFEFF/, ""));
   return rows.slice(1).map((r) => {
-    const cells = r.split(",");
+    const cells = splitRow(r);
     const o = {};
     head.forEach((h, i) => (o[h] = cells[i]));
     return o;
