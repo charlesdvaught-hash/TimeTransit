@@ -38,6 +38,21 @@ describe("nameScore", () => {
     ).toBeGreaterThan(nameScore("partners federal credit union", "Partners"));
   });
 
+  it("matches on prefixes and small typos", () => {
+    expect(
+      nameScore("partners fed credit", "Partners Federal Credit Union"),
+    ).toBeGreaterThan(0);
+    expect(
+      nameScore(
+        "partners fedral credit union",
+        "Partners Federal Credit Union",
+      ),
+    ).toBeGreaterThan(nameScore("partners fedral credit union", "Taco Bell"));
+    expect(
+      nameScore("partnrs", "Partners Federal Credit Union"),
+    ).toBeGreaterThan(0);
+  });
+
   it("ignores filler words and punctuation", () => {
     expect(
       nameScore("the coffee bean", "Coffee Bean & Tea Leaf"),

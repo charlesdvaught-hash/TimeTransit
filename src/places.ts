@@ -36,10 +36,14 @@ export function searchPlaces(
     .split(/[^a-z0-9]+/)
     .filter((w) => w);
   if (!words.length) return [];
-  const key = words.find((w) => w.length >= 4) ?? words[0];
+  const keys = words.filter((w) => w.length >= 4);
+  let pool: Row[] = [];
+  for (const k of keys.length ? keys : words) {
+    pool = rows.filter((p) => p.lw!.includes(k));
+    if (pool.length) break;
+  }
   const scored: { p: Row; s: number }[] = [];
-  for (const p of rows) {
-    if (!p.lw!.includes(key)) continue;
+  for (const p of pool) {
     const s = nameScore(query, p.n);
     if (s >= 200) scored.push({ p, s });
   }

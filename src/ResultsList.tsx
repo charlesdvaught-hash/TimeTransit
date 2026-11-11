@@ -123,6 +123,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
         setSuggestions(list);
         setActive((a) => Math.min(a, list.length - 1));
       };
+      loadPlaces().then(() => publish()); // re-publish once the index lands
       suggest(segment, origin, c.signal)
         .then((places) => {
           photon.push(...places);
