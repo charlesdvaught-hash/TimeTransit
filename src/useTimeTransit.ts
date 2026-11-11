@@ -23,6 +23,7 @@ import { observation } from "./reliability";
 import { addObservations } from "./reliabilityStore";
 import {
   liveDepartures as fetchLiveDepartures,
+  transferViolations,
   type LiveDeparture,
 } from "./transit";
 import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
@@ -71,6 +72,7 @@ export function useTimeTransit() {
     [hover, setHover] = useState<Place[]>([]),
     [back, updateBack] = useState(true),
     [chain, setChain] = useState<TripChain | null>(null),
+    [chainWarnings, setChainWarnings] = useState<string[]>([]), // STAGE-3
     [chainNote, setChainNote] = useState(""),
     [now, setNow] = useState(new Date()),
     [originSearch, setOriginSearch] = useState(""),
@@ -94,6 +96,7 @@ export function useTimeTransit() {
     tripAbort.current = null;
     setTripBusy(false);
     setChain(null);
+    setChainWarnings([]); // STAGE-3
   }
   function setDwell(value: number) {
     if (!Number.isFinite(value) || value < 0 || value > 240) return;
@@ -532,6 +535,44 @@ export function useTimeTransit() {
       if (!c.signal.aborted) {
         setChain(trip);
         setSelected(null);
+        // STAGE-3: live transfer check — first boarding leg per visit vs the
+        // rider's planned arrival; shares the 60s live-compare throttle
+        const refs = trip.visits
+          .map((v, visit) => ({
+            visit,
+            leg: v.trip.legs.find((l) => l.mode !== "WALK" && l.tripId),
+          }))
+          .filter((r) => !!r.leg);
+        if (
+          refs.length &&
+          refs.some(
+            (r) =>
+              Date.parse(r.leg!.scheduledStartTime || r.leg!.startTime) -
+                Date.now() <
+              2 * 3600 * 1000,
+          ) &&
+          Date.now() - lastLiveCompare >= 60000
+        ) {
+          lastLiveCompare = Date.now();
+          fetchLiveDepartures(
+            refs.map((r) => r.leg!),
+            c.signal,
+          )
+            .then((lives) => {
+              if (c.signal.aborted) return;
+              const byVisit: (LiveDeparture | undefined)[] = [];
+              refs.forEach((r, i) => (byVisit[r.visit] = lives[i]));
+              setChainWarnings(
+                transferViolations(trip, byVisit).map((x) => {
+                  const live = byVisit[x.visit];
+                  return `${live?.routeName || "Transit"} ${
+                    x.cancelled ? "is cancelled" : "leaves before you arrive"
+                  } · ${trip.visits[x.visit].place.name}`;
+                }),
+              );
+            })
+            .catch(() => {});
+        }
       }
     } catch (e) {
       if (!c.signal.aborted) setError((e as Error).message);
@@ -594,6 +635,7 @@ export function useTimeTransit() {
     setBack,
     chain,
     setChain,
+    chainWarnings, // STAGE-3
     chainNote,
     stopPins,
     setStopPin,

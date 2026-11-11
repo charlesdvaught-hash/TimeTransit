@@ -1,6 +1,13 @@
-import { describe, it, expect } from "vitest";
-import { normalizeName, nearestStop, pickDeparture } from "./transit";
-import type { Leg } from "./core";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import {
+  normalizeName,
+  nearestStop,
+  pickDeparture,
+  stopDepartures,
+  transferViolations,
+  type LiveDeparture,
+} from "./transit";
+import type { Leg, TripChain } from "./core";
 const leg: Leg = {
   mode: "BUS",
   duration: 300,
@@ -134,5 +141,95 @@ describe("transit api matching", () => {
     expect(nearestStop(stops, { lat: 33, lon: -118 })!.global_stop_id).toBe(
       "a",
     );
+  });
+});
+// STAGE-3
+describe("stopDepartures batching", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it("sends one batched request with deduped ids capped at 100", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ route_departures: [] })),
+      );
+    const ids = Array.from({ length: 140 }, (_, i) => `NET:${i % 120}`);
+    expect(await stopDepartures(ids, 1762807200)).toEqual([]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const url = spy.mock.calls[0][0] as string;
+    const sent = url
+      .split("global_stop_ids=")[1]
+      .split("&")[0]
+      .split(",")
+      .map(decodeURIComponent);
+    expect(sent.length).toBe(100);
+    expect(new Set(sent).size).toBe(sent.length);
+    expect(url).toContain("time=1762807200");
+  });
+  it("does not request when there are no stop ids", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    expect(await stopDepartures([], 1762807200)).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+describe("transferViolations", () => {
+  const walkLeg = (end: string): Leg => ({
+    mode: "WALK",
+    duration: 60,
+    startTime: "2026-11-10T14:58:00Z",
+    endTime: end,
+    from: { id: "o", name: "Origin", lat: 33, lon: -118 },
+    to: { id: "f", name: "Board", lat: 33, lon: -118 },
+  });
+  const busLeg = (start: string): Leg => ({
+    mode: "BUS",
+    duration: 300,
+    tripId: "t1",
+    routeShortName: "43",
+    startTime: start,
+    endTime: "2026-11-10T15:10:00Z",
+    from: { id: "f", name: "Board", lat: 33, lon: -118 },
+    to: { id: "t", name: "Exit", lat: 33.01, lon: -118 },
+  });
+  const chain = (visits: Leg[][]): TripChain => ({
+    visits: visits.map((legs, i) => ({
+      stop: { id: `seg-${i}`, label: `Stop ${i}`, candidates: [], dwell: 15 },
+      place: { id: `p${i}`, name: `Stop ${i}`, lat: 33, lon: -118 },
+      trip: {
+        duration: 360,
+        startTime: legs[0].startTime,
+        endTime: legs[legs.length - 1].endTime,
+        transfers: 1,
+        legs,
+      },
+    })),
+    duration: 1800,
+  });
+  const live = (expectedTime: string, cancelled = false): LiveDeparture => ({
+    routeName: "43",
+    stopName: "Board",
+    scheduledTime: "2026-11-10T15:00:00Z",
+    expectedTime,
+    delay: 0,
+    realtime: true,
+    cancelled,
+  });
+  it("flags a live departure that leaves before the rider arrives", () => {
+    const out = transferViolations(
+      chain([
+        [walkLeg("2026-11-10T14:59:00Z"), busLeg("2026-11-10T15:00:00Z")],
+        [walkLeg("2026-11-10T16:00:00Z"), busLeg("2026-11-10T16:05:00Z")],
+      ]),
+      [live("2026-11-10T14:55:00Z"), live("2026-11-10T16:10:00Z")],
+    );
+    expect(out).toEqual([{ visit: 0, leg: 1, missedBy: 240 }]);
+  });
+  it("flags cancelled departures even when the plan is on time", () => {
+    const out = transferViolations(
+      chain([
+        [walkLeg("2026-11-10T14:59:00Z"), busLeg("2026-11-10T15:00:00Z")],
+      ]),
+      [live("2026-11-10T15:00:00Z", true)],
+    );
+    expect(out).toEqual([{ visit: 0, leg: 1, missedBy: 0, cancelled: true }]);
   });
 });
