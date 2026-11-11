@@ -4,7 +4,15 @@
 import { distance, type Place } from "./core";
 import { nameScore } from "./suggestions";
 
-type Row = { n: string; a?: string; la: number; lo: number; lw?: string };
+type Row = {
+  n: string;
+  a?: string;
+  k?: string; // venue kind, e.g. "arcade" — spaces, lowercase
+  la: number;
+  lo: number;
+  lw?: string;
+  kw?: string;
+};
 let rows: Row[] | null = null;
 let loading: Promise<Row[] | null> | null = null;
 
@@ -14,7 +22,10 @@ export function loadPlaces(): Promise<Row[] | null> {
     loading = fetch("places/oc.json")
       .then((r) => (r.ok ? r.json() : null))
       .then((d: Row[] | null) => {
-        for (const r of d || []) r.lw = r.n.toLowerCase();
+        for (const r of d || []) {
+          r.lw = r.n.toLowerCase();
+          if (r.k) r.kw = r.k.toLowerCase();
+        }
         return (rows = d);
       })
       .catch(() => null);
@@ -43,6 +54,7 @@ export function nearestPlaces(
       id: `ovt-${x.r.la},${x.r.lo}`,
       name: x.r.n,
       address: x.r.a,
+      kind: x.r.k,
       lat: x.r.la,
       lon: x.r.lo,
     }));
@@ -66,18 +78,23 @@ export function searchPlaces(
   const keys = words.filter((w) => w.length >= 4);
   let pool: Row[] = [];
   for (const k of keys.length ? keys : words) {
-    pool = rows.filter((p) => p.lw!.includes(k));
+    // name OR venue kind — "arcade" should find places typed arcade,
+    // not just names containing the word
+    pool = rows.filter(
+      (p) => p.lw!.includes(k) || (p.kw && p.kw.includes(k)),
+    );
     if (pool.length) break;
   }
   const scored: { p: Row; s: number }[] = [];
   for (const p of pool) {
-    const s = nameScore(query, p.n);
+    const s = Math.max(nameScore(query, p.n), nameScore(query, p.kw ?? ""));
     if (s >= 200) scored.push({ p, s });
   }
   const pt = (r: Row): Place => ({
     id: `ovt-${r.la},${r.lo}`,
     name: r.n,
     address: r.a,
+    kind: r.k,
     lat: r.la,
     lon: r.lo,
   });

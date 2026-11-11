@@ -24,6 +24,7 @@ import {
   type RouteInfo,
 } from "./transit";
 import { hasSavedOrigin } from "./preferences";
+import type { Place } from "./core";
 import type { TransitController } from "./useTimeTransit";
 maplibregl.setWorkerUrl(workerUrl);
 export function MapLayer({ controller }: { controller: TransitController }) {
@@ -56,7 +57,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     | null
   >(null);
   const [placeCard, setPlaceCard] = useState<{
-    places: { id: string; name: string; address?: string }[];
+    places: Place[];
     deps?: NearbyDeparture[];
     at: { lat: number; lon: number };
   } | null>(null);
@@ -717,7 +718,11 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           {placeCard.places.map((p) => (
             <div key={p.id} className="map-card-place">
               <strong>{p.name}</strong>
-              {p.address && <span className="map-card-sub">{p.address}</span>}
+              {(p.kind || p.address) && (
+                <span className="map-card-sub">
+                  {[p.kind, p.address].filter(Boolean).join(" · ")}
+                </span>
+              )}
               <button onClick={() => controller.run(p.name)}>Route here</button>
             </div>
           ))}

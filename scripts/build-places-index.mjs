@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Overture GeoJSON (overturemaps download --type=place) -> compact places index.
 // Usage: node scripts/build-places-index.mjs <input.geojson> [out.json]
-// Default out: public/places/oc.json. Rows: {n, a?, la, lo} name/address/coords.
+// Default out: public/places/oc.json. Rows: {n, a?, k?, la, lo} —
+// name/address/coords plus k = venue kind (taxonomy.primary), spaces not _.
 import { createReadStream, writeFileSync, mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { dirname } from "node:path";
@@ -39,6 +40,11 @@ for await (const line of rl) {
   seen.add(key);
   const r = { n: name, la: +lat.toFixed(5), lo: +lon.toFixed(5) };
   if (addr) r.a = addr;
+  const kind = (p.taxonomy?.primary || p.basic_category || "").replace(
+    /_/g,
+    " ",
+  );
+  if (kind) r.k = kind;
   rows.push(r);
 }
 mkdirSync(dirname(out), { recursive: true });

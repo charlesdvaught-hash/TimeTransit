@@ -60,6 +60,9 @@ export const categories: Record<string, string> = {
   Gym: "leisure:fitness_centre",
   "Bank/ATM": "amenity:bank",
   Hardware: "shop:doityourself",
+  Arcade: "leisure:amusement_arcade",
+  Bakery: "shop:bakery",
+  Bars: "amenity:bar",
 };
 const synonyms: Record<string, string | string[]> = {
   coffee: "amenity:cafe",
@@ -96,6 +99,14 @@ const synonyms: Record<string, string | string[]> = {
   atm: "amenity:atm",
   hardware: "shop:doityourself",
   tools: "shop:doityourself",
+  arcade: "leisure:amusement_arcade",
+  arcades: "leisure:amusement_arcade",
+  bakery: "shop:bakery",
+  bakeries: "shop:bakery",
+  pastries: "shop:bakery",
+  bar: "amenity:bar",
+  bars: "amenity:bar",
+  pub: "amenity:bar",
 };
 const searchStopwords = new Set([
   "a",
