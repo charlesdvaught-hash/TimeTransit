@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Clock3, LocateFixed, Navigation, Search, X } from "lucide-react";
 import { searchOrigin } from "./api";
 import { PreferencesPanel } from "./PreferencesPanel";
@@ -27,8 +28,21 @@ export function Panel({ controller }: { controller: TransitController }) {
     changeOrigin,
     locate,
   } = controller;
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    if (selected) setCollapsed(false);
+  }, [selected]);
+  const gps = origin.id === "gps";
   return (
-    <aside className="panel">
+    <aside className={collapsed ? "panel collapsed" : "panel"}>
+      <button
+        className="panel-grabber"
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "Expand trip panel" : "Collapse trip panel"}
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        <span />
+      </button>
       <div className="origin-box">
         <span className="tiny-dot" />
         <div>
@@ -46,44 +60,55 @@ export function Panel({ controller }: { controller: TransitController }) {
       {picking && (
         <p className="notice">Click anywhere on the map to set your origin.</p>
       )}
-      <button className="use-location" onClick={locate} disabled={locating}>
-        <LocateFixed size={13} />
-        {locating ? "Locating…" : "Use my location"}
-      </button>
-      <form
-        className="address-form"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          try {
-            setOriginOptions(await searchOrigin(originSearch, origin));
-          } catch (e) {
-            setError((e as Error).message);
-          }
-        }}
-      >
-        <input
-          aria-label="Origin address"
-          placeholder="Or search a starting address"
-          value={originSearch}
-          onChange={(e) => setOriginSearch(e.target.value)}
-        />
-        <button title="Find address">
-          <Search size={14} />
+      {!gps && (
+        <button className="use-location" onClick={locate} disabled={locating}>
+          <LocateFixed size={13} />
+          {locating ? "Locating…" : "Use my location"}
         </button>
-      </form>
-      {originOptions.map((p) => (
-        <button
-          className="address-option"
-          key={p.id}
-          onClick={() => {
-            changeOrigin(p);
-            setOriginOptions([]);
-            setOriginSearch("");
+      )}
+      <details className="utility-panel origin-tools">
+        <summary>{gps ? "Change start" : "Start options"}</summary>
+        {gps && (
+          <button className="use-location" onClick={locate} disabled={locating}>
+            <LocateFixed size={13} />
+            {locating ? "Locating…" : "Re-locate me"}
+          </button>
+        )}
+        <form
+          className="address-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            try {
+              setOriginOptions(await searchOrigin(originSearch, origin));
+            } catch (e) {
+              setError((e as Error).message);
+            }
           }}
         >
-          {p.name} <small>{p.address}</small>
-        </button>
-      ))}
+          <input
+            aria-label="Origin address"
+            placeholder="Or search a starting address"
+            value={originSearch}
+            onChange={(e) => setOriginSearch(e.target.value)}
+          />
+          <button title="Find address">
+            <Search size={14} />
+          </button>
+        </form>
+        {originOptions.map((p) => (
+          <button
+            className="address-option"
+            key={p.id}
+            onClick={() => {
+              changeOrigin(p);
+              setOriginOptions([]);
+              setOriginSearch("");
+            }}
+          >
+            {p.name} <small>{p.address}</small>
+          </button>
+        ))}
+      </details>
       <div className="departure">
         <Clock3 size={14} />
         <span>Departure</span>
@@ -112,8 +137,11 @@ export function Panel({ controller }: { controller: TransitController }) {
           />
         )}
       </div>
-      <PreferencesPanel controller={controller} />
-      <ReliabilityPanel />
+      <details className="utility-panel settings-panel">
+        <summary>Settings</summary>
+        <PreferencesPanel controller={controller} />
+        <ReliabilityPanel />
+      </details>
       <ResultsList controller={controller} />
       {error && (
         <div role="alert" className="error">
