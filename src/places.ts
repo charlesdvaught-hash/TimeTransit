@@ -21,6 +21,33 @@ export function loadPlaces(): Promise<Row[] | null> {
   return loading;
 }
 
+// synchronous once loaded — "what is at this point" for map taps
+export function nearestPlaces(
+  point: { lat: number; lon: number },
+  maxM = 60,
+  limit = 3,
+): Place[] {
+  if (!rows) {
+    loadPlaces();
+    return [];
+  }
+  return rows
+    .map((r) => ({
+      r,
+      m: distance(point, { lat: r.la, lon: r.lo }) * 1000,
+    }))
+    .filter((x) => x.m <= maxM)
+    .sort((a, b) => a.m - b.m)
+    .slice(0, limit)
+    .map((x) => ({
+      id: `ovt-${x.r.la},${x.r.lo}`,
+      name: x.r.n,
+      address: x.r.a,
+      lat: x.r.la,
+      lon: x.r.lo,
+    }));
+}
+
 // synchronous once loaded — callers should kick loadPlaces() first/early
 export function searchPlaces(
   query: string,

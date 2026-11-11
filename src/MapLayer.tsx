@@ -16,6 +16,8 @@ import {
   loadNetwork,
   type ArrowField,
 } from "./networkGeo";
+import { nearestPlaces } from "./places";
+import { routeInfoAt, type RouteInfo } from "./transit";
 import { hasSavedOrigin } from "./preferences";
 import type { TransitController } from "./useTimeTransit";
 maplibregl.setWorkerUrl(workerUrl);
@@ -39,6 +41,19 @@ export function MapLayer({ controller }: { controller: TransitController }) {
   const pickRef = useRef(picking);
   const styled = useRef(false);
   const [basemap, setBasemap] = useState<Basemap>(loadBasemap);
+  const [routeCard, setRouteCard] = useState<
+    | (Partial<RouteInfo> & {
+        name: string;
+        agency?: string;
+        color?: string;
+        loading?: boolean;
+      })
+    | null
+  >(null);
+  const [placeCard, setPlaceCard] = useState<{
+    places: { id: string; name: string; address?: string }[];
+    at: { lat: number; lon: number };
+  } | null>(null);
   pickRef.current = picking;
   useEffect(() => {
     const m = new maplibregl.Map({
@@ -51,13 +66,57 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     });
     map.current = m;
     m.on("click", (e) => {
-      if (pickRef.current)
+      if (pickRef.current) {
         changeOrigin({
           id: "pin",
           name: "Pinned location",
           lat: e.lngLat.lat,
           lon: e.lngLat.lng,
         });
+        return;
+      }
+      // tapped a route line? show its stops + next departures
+      const hit = m.queryRenderedFeatures(e.point, {
+        layers: ["ambient-flow", "ambient-core", "ambient-line"].filter((l) =>
+          m.getLayer(l),
+        ),
+      })[0];
+      if (hit?.properties?.n && hit.properties.n !== "?") {
+        const p = hit.properties;
+        setRouteCard({
+          name: p.n,
+          agency: p.a,
+          color: p.c,
+          loading: true,
+        });
+        routeInfoAt(p.n, p.a, {
+          lat: e.lngLat.lat,
+          lon: e.lngLat.lng,
+        })
+          .then((info) =>
+            setRouteCard((c) =>
+              c?.name === p.n ? { ...c, ...info, loading: false } : c,
+            ),
+          )
+          .catch(() =>
+            setRouteCard((c) =>
+              c?.name === p.n ? { ...c, loading: false } : c,
+            ),
+          );
+        setPlaceCard(null);
+        return;
+      }
+      // otherwise: what's here? nearest known places
+      const places = nearestPlaces({
+        lat: e.lngLat.lat,
+        lon: e.lngLat.lng,
+      });
+      setPlaceCard(
+        places.length
+          ? { places, at: { lat: e.lngLat.lat, lon: e.lngLat.lng } }
+          : null,
+      );
+      setRouteCard(null);
     });
     m.on("error", (e) => {
       if (e.error?.message) setError(`Map: ${e.error.message}`);
@@ -470,6 +529,78 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       {liveBus && (
         <div className="live-badge" title="Live vehicle position">
           <img src="transit-api-badge.svg" alt="Powered by Transit" />
+        </div>
+      )}
+      {routeCard && (
+        <div className="map-card">
+          <div className="map-card-head">
+            <span
+              className="route-chip"
+              style={{ background: routeCard.color || "#4da3ff" }}
+            >
+              {routeCard.name}
+            </span>
+            {routeCard.agency && (
+              <span className="map-card-sub">{routeCard.agency}</span>
+            )}
+            <button aria-label="Close" onClick={() => setRouteCard(null)}>
+              ×
+            </button>
+          </div>
+          {routeCard.headsigns?.length ? (
+            <p className="map-card-sub">{routeCard.headsigns.join(" ↔ ")}</p>
+          ) : null}
+          {routeCard.departures?.length ? (
+            <p className="map-card-eta">
+              Next at {routeCard.stopName}:{" "}
+              {routeCard.departures
+                .map((d) =>
+                  new Date(d.time).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  }),
+                )
+                .join(" · ")}
+              {routeCard.departures.some((d) => d.realtime) ? " (live)" : ""}
+            </p>
+          ) : routeCard.loading ? (
+            <p className="map-card-sub">Loading departures…</p>
+          ) : null}
+          {routeCard.stops && routeCard.stops.length > 0 && (
+            <ol className="map-card-stops">
+              {routeCard.stops.slice(0, 14).map((s) => (
+                <li key={s.id}>{s.name}</li>
+              ))}
+              {routeCard.stops.length > 14 && (
+                <li>… {routeCard.stops.length - 14} more</li>
+              )}
+            </ol>
+          )}
+        </div>
+      )}
+      {placeCard && (
+        <div className="map-card">
+          <div className="map-card-head">
+            <strong>What's here</strong>
+            <button aria-label="Close" onClick={() => setPlaceCard(null)}>
+              ×
+            </button>
+          </div>
+          {placeCard.places.map((p) => (
+            <div key={p.id} className="map-card-place">
+              <strong>{p.name}</strong>
+              {p.address && <span className="map-card-sub">{p.address}</span>}
+              <button onClick={() => controller.run(p.name)}>Route here</button>
+            </div>
+          ))}
+          <a
+            className="map-card-link"
+            href={`https://www.google.com/maps/search/?api=1&query=${placeCard.at.lat},${placeCard.at.lon}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open area in Google Maps
+          </a>
         </div>
       )}
       <div className="basemap-switch" role="group" aria-label="Basemap">

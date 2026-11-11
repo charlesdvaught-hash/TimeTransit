@@ -9,8 +9,8 @@ import { join } from "node:path";
 const args = process.argv.slice(2);
 const out = args.pop();
 const dirs = args.map((a) => {
-  const [dir, color] = a.split(",");
-  return { dir, color: color || "4da3ff" };
+  const [dir, color, agency] = a.split(",");
+  return { dir, color: color || "4da3ff", agency: agency || dir };
 });
 
 // RFC4180-ish: quoted fields may contain commas and doubled quotes
@@ -51,9 +51,7 @@ const simplify = (pts) => {
   const out = [pts[0]];
   for (let i = 1; i < pts.length - 1; i++) {
     const [la, lo] = out[out.length - 1];
-    if (
-      Math.hypot((pts[i][0] - la) * 111000, (pts[i][1] - lo) * 90000) > 18
-    )
+    if (Math.hypot((pts[i][0] - la) * 111000, (pts[i][1] - lo) * 90000) > 18)
       out.push(pts[i]);
   }
   out.push(pts[pts.length - 1]);
@@ -85,26 +83,30 @@ const encode = (pts) => {
 
 const lines = [];
 const seen = new Set();
-for (const { dir, color } of dirs) {
+for (const { dir, color, agency } of dirs) {
   const routes = new Map(
     csv(join(dir, "routes.txt")).map((r) => [
       r.route_id,
-      r.route_color || color,
+      {
+        c: r.route_color || color,
+        n: r.route_short_name || r.route_long_name || "?",
+      },
     ]),
   );
   const shapeColor = new Map();
   for (const t of csv(join(dir, "trips.txt")))
     if (t.shape_id && !shapeColor.has(t.shape_id))
-      shapeColor.set(t.shape_id, routes.get(t.route_id) || color);
+      shapeColor.set(
+        t.shape_id,
+        routes.get(t.route_id) || { c: color, n: "?" },
+      );
   const shapes = new Map();
   for (const s of csv(join(dir, "shapes.txt"))) {
     const id = s.shape_id;
     if (!shapes.has(id)) shapes.set(id, []);
-    shapes.get(id).push([
-      +s.shape_pt_lat,
-      +s.shape_pt_lon,
-      +s.shape_pt_sequence,
-    ]);
+    shapes
+      .get(id)
+      .push([+s.shape_pt_lat, +s.shape_pt_lon, +s.shape_pt_sequence]);
   }
   for (const [id, pts] of shapes) {
     pts.sort((a, b) => a[2] - b[2]);
@@ -112,9 +114,12 @@ for (const { dir, color } of dirs) {
     const e = encode(simple);
     if (seen.has(e)) continue;
     seen.add(e);
+    const r = shapeColor.get(id) || { c: color, n: "?" };
     lines.push({
-      c: `#${(shapeColor.get(id) || color).replace("#", "")}`,
+      c: `#${r.c.replace("#", "")}`,
       e,
+      n: r.n,
+      a: agency,
     });
   }
 }

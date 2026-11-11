@@ -210,6 +210,101 @@ export async function liveDeparture(
   return (await liveDepartures([leg], signal))[0];
 }
 
+// Route tap → stops along the line + next live departures near the tap.
+export type RouteInfo = {
+  name: string;
+  agency?: string;
+  headsigns: string[];
+  stops: { name: string; id: string }[];
+  stopName?: string;
+  departures: { time: number; realtime: boolean }[];
+};
+export async function routeInfoAt(
+  routeName: string,
+  agency: string | undefined,
+  point: { lat: number; lon: number },
+  signal?: AbortSignal,
+): Promise<RouteInfo | undefined> {
+  const near = await get(
+    `/v4/public/nearby_routes?lat=${point.lat}&lon=${point.lon}&max_distance=800`,
+    signal,
+  );
+  const want = normalizeName(routeName);
+  const route = (near.routes || []).find((r: RouteDeparture) =>
+    routeNames(r).includes(want),
+  );
+  if (!route?.global_route_id) return;
+  const [details, stops] = await Promise.all([
+    get(
+      `/v4/public/route_details?global_route_id=${encodeURIComponent(route.global_route_id)}`,
+      signal,
+    ),
+    get(
+      `/v4/public/nearby_stops?lat=${point.lat}&lon=${point.lon}&max_distance=400`,
+      signal,
+    ),
+  ]);
+  const itins = (details.itineraries || []).filter(
+    (i: { is_active?: boolean }) => i.is_active !== false,
+  );
+  const info: RouteInfo = {
+    name: route.route_short_name || route.route_long_name || routeName,
+    agency,
+    headsigns: [
+      ...new Set(
+        itins
+          .map((i: { direction_headsign?: string }) => i.direction_headsign)
+          .filter(Boolean),
+      ),
+    ] as string[],
+    stops: [],
+    departures: [],
+  };
+  // stops from the itinerary whose first stop is nearest the tap
+  const nearStop = nearestStop(stops.stops || [], point, 400);
+  const best = itins
+    .map((i: { stops?: { stop_lat: number; stop_lon: number }[] }) => ({
+      i,
+      m: i.stops?.length
+        ? Math.min(
+            ...i.stops.map((s) =>
+              distance(point, { lat: s.stop_lat, lon: s.stop_lon }),
+            ),
+          )
+        : 9e9,
+    }))
+    .sort((a: { m: number }, b: { m: number }) => a.m - b.m)[0]?.i;
+  info.stops = (best?.stops || []).map(
+    (s: { stop_name: string; global_stop_id: string }) => ({
+      name: s.stop_name,
+      id: s.global_stop_id,
+    }),
+  );
+  if (nearStop) {
+    const at = Math.floor(Date.now() / 1000) - 60;
+    const deps = await get(
+      `/v4/public/stop_departures?global_stop_ids=${encodeURIComponent(nearStop.global_stop_id)}&time=${at}&max_num_departures=10&merge_platform_stops=true`,
+      signal,
+    );
+    const row = ((deps.route_departures || []) as RouteDeparture[]).find((r) =>
+      routeNames(r).includes(want),
+    );
+    if (row) {
+      info.stopName = nearStop.stop_name;
+      info.departures = row.merged_itineraries
+        .flatMap((i) => i.schedule_items)
+        .filter((s) => s.departure_time > at)
+        .sort((a, b) => a.departure_time - b.departure_time)
+        .slice(0, 3)
+        .map((s) => ({
+          time: s.departure_time * 1000,
+          realtime: !!s.is_real_time,
+        }));
+    }
+  }
+  return info;
+}
+
 // Live bus position via Transit's /v4/vehicles — fallback when the
 // keyless GTFS-RT feed has no match (non-OCTA legs, missing trips).
 export async function liveVehicle(

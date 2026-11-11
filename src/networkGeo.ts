@@ -8,13 +8,13 @@ export async function loadNetwork(): Promise<GeoJSON.FeatureCollection | null> {
     const r = await fetch("scan/network.json");
     if (r.ok) {
       const { lines } = (await r.json()) as {
-        lines: { c: string; e: string }[];
+        lines: { c: string; e: string; n?: string; a?: string }[];
       };
       return {
         type: "FeatureCollection",
         features: lines.map((l) => ({
           type: "Feature",
-          properties: { c: l.c },
+          properties: { c: l.c, n: l.n, a: l.a },
           geometry: { type: "LineString", coordinates: decode(l.e, 6) },
         })),
       };

@@ -1219,3 +1219,75 @@ button:hover {
   font-size: 13px;
   margin: 6px 0 0;
 }
+.map-card {
+  position: absolute;
+  top: 64px;
+  right: 12px;
+  z-index: 6;
+  width: 250px;
+  max-height: 55vh;
+  overflow-y: auto;
+  background: rgba(10, 18, 30, 0.92);
+  border: 1px solid #233246;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #dbe7f4;
+}
+.map-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+.map-card-head button {
+  background: none;
+  border: none;
+  color: #8aa0b8;
+  font-size: 16px;
+  cursor: pointer;
+}
+.route-chip {
+  color: #0a0f16;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+.map-card-sub {
+  color: #8aa0b8;
+  font-size: 12px;
+  margin: 4px 0;
+}
+.map-card-eta {
+  color: #9fd8a8;
+  margin: 6px 0;
+}
+.map-card-stops {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.map-card-stops li {
+  margin: 2px 0;
+}
+.map-card-place {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0;
+}
+.map-card-place button {
+  align-self: flex-start;
+  margin-top: 4px;
+  background: #1d3a5f;
+  color: #cfe4ff;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.map-card-link {
+  color: #7cc7ff;
+  font-size: 12px;
+}
