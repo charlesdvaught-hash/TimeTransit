@@ -147,7 +147,7 @@ async function gemini(env, prompt, user, name, schema) {
         generationConfig: {
           response_mime_type: "application/json",
           response_json_schema: geminiSchema(schema),
-          thinking_level: "minimal",
+          thinkingConfig: { thinking_level: "minimal" },
         },
       }),
     },
@@ -222,18 +222,27 @@ async function llm(request, env, cors) {
     .filter(Boolean);
   const errors = [];
   for (const p of providers) {
-    try {
-      const call = p === "groq" ? groq : p === "gemini" ? gemini : null;
-      if (!call) {
-        errors.push(`${p}: unknown provider`);
-        continue;
-      }
-      return Response.json(await call(env, PROMPTS[task], user, name, schema), {
-        headers: cors,
-      });
-    } catch (e) {
-      errors.push(`${p}: ${e.message}`);
+    const call = p === "groq" ? groq : p === "gemini" ? gemini : null;
+    if (!call) {
+      errors.push(`${p}: unknown provider`);
+      continue;
     }
+    // STAGE-0: Gemini free tier throws intermittent 403/503 — one same-provider
+    // retry before falling through to the next provider.
+    let last;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return Response.json(
+          await call(env, PROMPTS[task], user, name, schema),
+          { headers: cors },
+        );
+      } catch (e) {
+        last = e;
+        if (!/ (403|429|5\d\d)$/.test(e.message)) break;
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    errors.push(`${p}: ${last.message}`);
   }
   return Response.json(
     { error: `All providers failed (${errors.join("; ")})` },

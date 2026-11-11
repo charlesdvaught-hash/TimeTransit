@@ -112,6 +112,9 @@ Worker env (never bundled; secrets via `wrangler secret put`, plain values as
   comparison per 60 s. No monthly-quota header exists; count locally.
 - `stop_departures` accepts comma-separated `global_stop_id`s (≤100 documented)
   and a `time` UNIX param; ~2 h ahead returns schedule-only (`is_real_time:false`).
+- Transit `global_stop_id` is `NETWORK:<internal id>` (e.g. `OCTA:64862` for
+  Haster-Orangewood) and the suffix is NOT the GTFS `stop_id` (`0002`) — it
+  can't be synthesized from the index, so the `nearby_stops` lookup stays.
 - OCTA GTFS: `octa.net/current/google_transit.zip` ~4 MB — 5,269 stops, 56
   routes, 7,243 trips, 453,744 stop_times; `shapes.txt` present, `frequencies.txt`
   absent. Feed window ends 2027-02-13; regenerate `public/scan/octa.json` via

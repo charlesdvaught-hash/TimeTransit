@@ -190,7 +190,7 @@ async function gemini(key, input) {
         generationConfig: {
           response_mime_type: "application/json",
           response_json_schema: geminiSchema(SCHEMA),
-          thinking_level: "minimal",
+          thinkingConfig: { thinking_level: "minimal" },
         },
       }),
       signal: AbortSignal.timeout(60000),
