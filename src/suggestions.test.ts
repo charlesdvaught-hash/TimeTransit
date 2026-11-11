@@ -92,10 +92,14 @@ describe("mergeSuggestions", () => {
     expect(mergeSuggestions("partners", [a], [b])).toHaveLength(1);
   });
 
-  it("keeps same-name branches that are far apart", () => {
+  it("groups same-name branches into one unpinned suggestion", () => {
     const a = place("Partners Federal Credit Union", 33.836, -117.914);
     const b = place("Partners Federal Credit Union", 33.9, -118.2);
-    expect(mergeSuggestions("partners", [a], [b])).toHaveLength(2);
+    const merged = mergeSuggestions("partners", [a], [b]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].detail).toBe("2 locations");
+    expect(merged[0].place).toBeUndefined(); // no early pin — optimizer picks
+    expect(merged[0].places).toHaveLength(2);
   });
 
   it("keeps provider order when nothing matches the query", () => {

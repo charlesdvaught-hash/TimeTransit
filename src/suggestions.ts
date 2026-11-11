@@ -5,7 +5,8 @@ export type Suggestion = {
   kind: "type" | "place";
   label: string;
   detail?: string;
-  place?: Place;
+  place?: Place; // set only when the name has exactly one location
+  places?: Place[]; // every location sharing this name
 };
 
 const filler = new Set(["the", "of", "and", "at", "in", "on", "near", "by"]);
@@ -65,20 +66,27 @@ const same = (a: Place, b: Place) =>
   distance(a, b) < 0.2;
 
 export function mergeSuggestions(query: string, ...lists: Place[][]) {
-  const kept: Place[] = [];
-  const merged: Suggestion[] = [];
+  // group by name: branches collapse into one pickable name; the app
+  // decides which branch later, when the whole trip is known
+  const groups = new Map<string, Place[]>();
   for (const place of lists.flat()) {
-    if (kept.some((other) => same(other, place))) continue;
-    kept.push(place);
-    merged.push({
-      id: `place-${place.id}`,
-      kind: "place",
-      label: place.name,
-      detail:
-        place.address || `${place.lat.toFixed(3)}, ${place.lon.toFixed(3)}`,
-      place,
-    });
+    const key = place.name.trim().toLowerCase();
+    const g = groups.get(key) || [];
+    if (!g.some((other) => same(other, place))) g.push(place);
+    groups.set(key, g);
   }
+  const merged: Suggestion[] = [...groups.values()].map((places) => ({
+    id: `place-${places[0].id}`,
+    kind: "place",
+    label: places[0].name,
+    detail:
+      places.length > 1
+        ? `${places.length} locations`
+        : places[0].address ||
+          `${places[0].lat.toFixed(3)}, ${places[0].lon.toFixed(3)}`,
+    place: places.length === 1 ? places[0] : undefined,
+    places,
+  }));
   const scored = merged.map((suggestion) => ({
     suggestion,
     score: nameScore(query, suggestion.label),

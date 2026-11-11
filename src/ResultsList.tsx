@@ -357,6 +357,9 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                 {time(v.trip.endTime)} · STOP {i + 1}
               </small>
               <h3>{v.place.name}</h3>
+              {v.place.address && (
+                <p className="chain-addr">{v.place.address}</p>
+              )}
               <p>
                 {minutes(v.trip.duration)} min travel · {v.stop.dwell} min stay
               </p>
@@ -396,7 +399,8 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                 <div className="result-info">
                   <h3>{r.place.name}</h3>
                   <p>
-                    {r.distance.toFixed(1)} km away · Arrive{" "}
+                    {r.distance.toFixed(1)} km away
+                    {r.place.address ? ` · ${r.place.address}` : ""} · Arrive{" "}
                     {time(shown.endTime)}
                   </p>
                   <RouteChips
