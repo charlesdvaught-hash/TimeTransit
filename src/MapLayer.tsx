@@ -24,6 +24,7 @@ import {
   type RouteInfo,
 } from "./transit";
 import { hasSavedOrigin } from "./preferences";
+import { GmapsLink } from "./GmapsLink";
 import type { Place } from "./core";
 import type { TransitController } from "./useTimeTransit";
 maplibregl.setWorkerUrl(workerUrl);
@@ -763,7 +764,12 @@ export function MapLayer({ controller }: { controller: TransitController }) {
                   {[p.kind, p.address].filter(Boolean).join(" · ")}
                 </span>
               )}
-              <button onClick={() => controller.run(p.name)}>Route here</button>
+              <div className="map-card-actions">
+                <button onClick={() => controller.run(p.name)}>
+                  Route here
+                </button>
+                <GmapsLink place={p} />
+              </div>
             </div>
           ))}
           <a

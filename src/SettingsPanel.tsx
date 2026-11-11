@@ -1,10 +1,8 @@
 import { PreferencesPanel } from "./PreferencesPanel";
 import { ReliabilityPanel } from "./ReliabilityPanel";
 import type { AiMode } from "./contracts";
+import { gmapsConfigured } from "./gmaps";
 import type { TransitController } from "./useTimeTransit";
-// STAGE-0: relay presence is the proxy for "Google Places key configured"
-// (the key lives in the Worker env, never in the bundle).
-const relay = import.meta.env.VITE_TRANSIT_RELAY || "";
 const tomtom = import.meta.env.VITE_TOMTOM_API_KEY || "";
 const MODES: { id: AiMode; label: string; hint: string }[] = [
   { id: "none", label: "None", hint: "No AI features — current behavior" },
@@ -55,14 +53,20 @@ export function SettingsPanel({
           <input
             type="checkbox"
             checked={p.budgetOnly}
-            disabled={!relay}
+            disabled={!gmapsConfigured()}
             onChange={(e) =>
               setPreferences({ ...p, budgetOnly: e.target.checked })
             }
           />{" "}
           Budget friendly
-          {!relay && <small> — Needs Google Places key</small>}
+          {!gmapsConfigured() && (
+            <small> — needs a Google Places key on the relay</small>
+          )}
         </label>
+        <small className="settings-hint">
+          Ratings &amp; price levels populate from Google when available — shown
+          on a place once selected; Budget dims pricey places as details arrive.
+        </small>
       </details>
       <PreferencesPanel controller={controller} />
       <ReliabilityPanel />

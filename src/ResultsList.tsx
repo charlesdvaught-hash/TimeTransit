@@ -27,6 +27,9 @@ import { categories, distance, suggestCategories, type Place } from "./core";
 import { mergeSuggestions, nameScore, type Suggestion } from "./suggestions";
 import { tomtomSuggest } from "./tomtom";
 import { loadPlaces, searchPlaces } from "./places";
+import type { GooglePlaceDetail } from "./contracts";
+import { detailSummary, enrichPlace, gmapsEnabled } from "./gmaps";
+import { GmapsLink } from "./GmapsLink";
 const categoryIcons: Record<string, typeof Coffee> = {
   Coffee,
   Grocery: ShoppingBasket,
@@ -187,6 +190,33 @@ export function ResultsList({ controller }: { controller: TransitController }) {
       setHover([]);
     };
   }, [segment, focused, origin]);
+  // STAGE-5: Google detail enrichment — fetched per place on select; with
+  // budgetOnly on, top rows are enriched too since priceLevel can't be known
+  // (and thus can't pre-filter) before the fetch returns.
+  const [gdetails, setGdetails] = useState<Record<string, GooglePlaceDetail>>(
+    {},
+  );
+  const gpending = useRef(new Set<string>());
+  useEffect(() => {
+    if (!gmapsEnabled) return;
+    const targets: Place[] = [];
+    if (selected && !chain) targets.push(selected.place);
+    if (controller.preferences.budgetOnly)
+      for (const r of results.slice(0, 8)) targets.push(r.place);
+    if (!targets.length) return;
+    const c = new AbortController();
+    for (const p of targets) {
+      if (gdetails[p.id] || gpending.current.has(p.id)) continue;
+      gpending.current.add(p.id);
+      enrichPlace(p, origin, c.signal)
+        .then(
+          (d) => d && setGdetails((m) => (m[p.id] ? m : { ...m, [p.id]: d })),
+        )
+        .catch(() => {})
+        .finally(() => gpending.current.delete(p.id));
+    }
+    return () => c.abort();
+  }, [selected, results, chain, gdetails, controller.preferences.budgetOnly]);
   function choose(s: Suggestion) {
     const parts = query.split("+");
     parts[current.index] = s.label;
@@ -536,10 +566,16 @@ export function ResultsList({ controller }: { controller: TransitController }) {
       <div className="results" onMouseLeave={() => setHover([])}>
         {results.map((r, i) => {
           const shown = selected === r && activeTrip ? activeTrip : r.trip;
+          const gd = gdetails[r.place.id];
+          const gline = gd ? detailSummary(gd) : "";
           return (
             <div
               className={
-                "result " + (selected === r && !chain ? "selected" : "")
+                "result " +
+                (selected === r && !chain ? "selected" : "") +
+                (controller.preferences.budgetOnly && (gd?.priceLevel ?? 0) > 2
+                  ? " over-budget"
+                  : "")
               }
               key={r.place.id}
             >
@@ -560,7 +596,13 @@ export function ResultsList({ controller }: { controller: TransitController }) {
               >
                 <span className="rank">{String(i + 1).padStart(2, "0")}</span>
                 <div className="result-info">
-                  <h3>{r.place.name}</h3>
+                  <h3>
+                    {r.place.name}
+                    {controller.preferences.verifiedOnly &&
+                      (r.place.confidence ?? 0) >= 0.9 && (
+                        <span className="verified-dot" title="Verified place" />
+                      )}
+                  </h3>
                   <p>
                     {r.distance.toFixed(1)} km away
                     {r.place.address ? ` · ${r.place.address}` : ""} · Arrive{" "}
@@ -570,6 +612,12 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                     trip={shown}
                     preferences={controller.preferences}
                   />
+                  {gline && (
+                    <small className="gmaps-line">
+                      {gline}
+                      <b>Google</b>
+                    </small>
+                  )}
                   {i + 1 !== r.distanceRank && (
                     <small className="ranking">
                       #{i + 1} by time · #{r.distanceRank} by distance
@@ -591,6 +639,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
               >
                 <Plus size={12} /> Add to trip
               </button>
+              <GmapsLink place={r.place} />
             </div>
           );
         })}
