@@ -23,14 +23,14 @@ function fields(buf: Uint8Array, start = 0, end = buf.length): Field[] {
       wire = tag & 7;
     if (wire === 0) out.push({ f, wire, v: varint() });
     else if (wire === 1) {
-      out.push({ f, wire, v: 0 });
+      out.push({ f, wire, v: buf.subarray(i, i + 8) });
       i += 8;
     } else if (wire === 2) {
       const len = varint();
       out.push({ f, wire, v: buf.subarray(i, i + len) });
       i += len;
     } else if (wire === 5) {
-      out.push({ f, wire, v: 0 });
+      out.push({ f, wire, v: buf.subarray(i, i + 4) });
       i += 4;
     } else break;
   }
@@ -82,6 +82,49 @@ export function decodeTripUpdates(buf: Uint8Array): TripDelays {
   return delays;
 }
 
+const f32 = (list: Field[], f: number) => {
+  const v = list.find(
+    (x) => x.f === f && x.wire === 5 && x.v instanceof Uint8Array,
+  )?.v as Uint8Array | undefined;
+  return v
+    ? new DataView(v.buffer, v.byteOffset, 4).getFloat32(0, true)
+    : undefined;
+};
+
+export type VehiclePos = {
+  trip: string;
+  lat: number;
+  lon: number;
+  bearing?: number;
+};
+// trip_id -> current vehicle position
+export function decodeVehiclePositions(
+  buf: Uint8Array,
+): Map<string, VehiclePos> {
+  const out = new Map<string, VehiclePos>();
+  for (const ent of msgs(fields(buf), 2)) {
+    const veh = msgs(fields(ent.v as Uint8Array), 2)[0];
+    if (!veh) continue;
+    const vF = fields(veh.v as Uint8Array);
+    const tripMsg = msgs(vF, 1)[0];
+    const tripId = tripMsg
+      ? str(
+          fields(tripMsg.v as Uint8Array).find((x) => x.f === 1)?.v ??
+            new Uint8Array(),
+        )
+      : "";
+    const pos = msgs(vF, 2)[0];
+    if (!tripId || !pos) continue;
+    const pF = fields(pos.v as Uint8Array);
+    const lat = f32(pF, 1),
+      lon = f32(pF, 2),
+      bearing = f32(pF, 3);
+    if (lat === undefined || lon === undefined) continue;
+    out.set(tripId, { trip: tripId, lat, lon, bearing });
+  }
+  return out;
+}
+
 const base = import.meta.env.VITE_TRANSIT_RELAY
   ? `${import.meta.env.VITE_TRANSIT_RELAY}/gtfsrt`
   : "/gtfsrt";
@@ -91,4 +134,12 @@ export async function fetchTripDelays(
   const r = await fetch(`${base}/tripupdates`, { signal });
   if (!r.ok) throw new Error(`GTFS-RT ${r.status}`);
   return decodeTripUpdates(new Uint8Array(await r.arrayBuffer()));
+}
+
+export async function fetchVehiclePositions(
+  signal?: AbortSignal,
+): Promise<Map<string, VehiclePos>> {
+  const r = await fetch(`${base}/VehiclePositions`, { signal });
+  if (!r.ok) throw new Error(`GTFS-RT ${r.status}`);
+  return decodeVehiclePositions(new Uint8Array(await r.arrayBuffer()));
 }

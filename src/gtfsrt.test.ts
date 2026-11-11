@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeTripUpdates } from "./gtfsrt";
+import { decodeTripUpdates, decodeVehiclePositions } from "./gtfsrt";
 
 // hand-encode protobuf: field(num,wire) helpers
 const v = (n: number) => {
@@ -46,5 +46,31 @@ describe("decodeTripUpdates", () => {
   });
   it("returns empty for garbage", () => {
     expect(decodeTripUpdates(new Uint8Array([1, 2, 3])).size).toBe(0);
+  });
+});
+
+// vehicle_positions: entity{ vehicle{ trip{trip_id:"T9"} position{lat,lon,bearing} } }
+const f32 = (f: number, n: number) => {
+  const b = new Uint8Array(4);
+  new DataView(b.buffer).setFloat32(0, n, true);
+  return [...tag(f, 5), ...b];
+};
+const vfeed = new Uint8Array([
+  ...msg(1, [...s(1, "2.0")]),
+  ...msg(2, [
+    ...msg(2, [
+      ...msg(1, [...s(1, "T9")]),
+      ...msg(2, [...f32(1, 33.8355), ...f32(2, -117.9134), ...f32(3, 90)]),
+    ]),
+  ]),
+]);
+
+describe("decodeVehiclePositions", () => {
+  it("extracts trip id and float position", () => {
+    const m = decodeVehiclePositions(vfeed);
+    const v = m.get("T9");
+    expect(v?.lat).toBeCloseTo(33.8355, 4);
+    expect(v?.lon).toBeCloseTo(-117.9134, 4);
+    expect(v?.bearing).toBe(90);
   });
 });

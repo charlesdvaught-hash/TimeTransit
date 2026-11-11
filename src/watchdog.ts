@@ -6,7 +6,7 @@ import {
   scan,
   type ScanIndex,
 } from "./scan";
-import type { TripDelays } from "./gtfsrt";
+import type { TripDelays, VehiclePos } from "./gtfsrt";
 
 export type WatchdogResult =
   | { kind: "better"; eta: number; savesMin: number; hint: string }
@@ -76,6 +76,28 @@ const delayMsAt = (
   if (u?.t !== undefined) return u.t * 1000 - schedMs;
   return 0;
 };
+
+// where is the bus for this leg right now? leg -> index trip -> live position
+export function liveBusFor(
+  index: ScanIndex,
+  leg: Leg,
+  vehicles: Map<string, VehiclePos>,
+  now: number,
+  tz = "America/Los_Angeles",
+): { lat: number; lon: number; bearing?: number } | null {
+  const fromIdx = near(index, leg.from),
+    toIdx = near(index, leg.to);
+  if (fromIdx < 0 || toIdx < 0) return null;
+  const m = matchTrip(
+    index,
+    activeTripsFor(index, tz, now),
+    fromIdx,
+    toIdx,
+    Date.parse(leg.scheduledStartTime || leg.startTime),
+  );
+  const v = m?.trip.i ? vehicles.get(m.trip.i) : undefined;
+  return v ? { lat: v.lat, lon: v.lon, bearing: v.bearing } : null;
+}
 
 export function watchJourney(opts: {
   index: ScanIndex;

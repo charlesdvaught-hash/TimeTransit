@@ -56,6 +56,11 @@ export function useTimeTransit() {
     [tripBusy, setTripBusy] = useState(false),
     [progress, setProgress] = useState([0, 0]),
     [error, setError] = useState(""),
+    [liveBus, setLiveBus] = useState<{
+      lat: number;
+      lon: number;
+      bearing?: number;
+    } | null>(null),
     [providers, setProviders] = useState<string[]>([]),
     [picking, setPicking] = useState(false),
     [departure, updateDeparture] = useState(""),
@@ -604,6 +609,8 @@ export function useTimeTransit() {
     setOriginOptions,
     liveDepartures,
     liveChoice,
+    liveBus,
+    setLiveBus,
     trip,
     arrival,
     locating,

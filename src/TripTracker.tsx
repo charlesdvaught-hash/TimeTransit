@@ -9,10 +9,10 @@ import {
 import { useTripTracking } from "./useTripTracking";
 import { addObservations } from "./reliabilityStore";
 import { observation } from "./reliability";
-import { fetchTripDelays } from "./gtfsrt";
+import { fetchTripDelays, fetchVehiclePositions } from "./gtfsrt";
 import { loadScanIndex } from "./scanData";
 import { inCoverage } from "./scan";
-import { watchJourney, type WatchdogResult } from "./watchdog";
+import { liveBusFor, watchJourney, type WatchdogResult } from "./watchdog";
 import { time } from "./display";
 
 function alertPing() {
@@ -33,9 +33,11 @@ function alertPing() {
 export function TripTracker({
   legs,
   onApply,
+  onBus,
 }: {
   legs: Leg[];
   onApply?: (from: { lat: number; lon: number }, at: number) => void;
+  onBus?: (pos: { lat: number; lon: number } | null) => void;
 }) {
   const tracking = useTripTracking(legs),
     [delay, setDelay] = useState(4),
@@ -53,8 +55,15 @@ export function TripTracker({
     const tick = async () => {
       const index = await loadScanIndex().catch(() => undefined);
       if (!alive || !index || !inCoverage(index, w.fix)) return;
-      const delays = await fetchTripDelays().catch(() => undefined);
+      const [delays, vehicles] = await Promise.all([
+        fetchTripDelays().catch(() => undefined),
+        fetchVehiclePositions().catch(() => undefined),
+      ]);
       if (!alive) return;
+      const leg = transit[w.legIndex];
+      onBus?.(
+        vehicles && leg ? liveBusFor(index, leg, vehicles, Date.now()) : null,
+      );
       const r = watchJourney({
         index,
         legs,
@@ -74,7 +83,7 @@ export function TripTracker({
       }
     };
     tick();
-    const timer = setInterval(tick, 75000);
+    const timer = setInterval(tick, 30000);
     return () => {
       alive = false;
       clearInterval(timer);
@@ -84,8 +93,9 @@ export function TripTracker({
     if (!tracking.active) {
       setNotice(null);
       lastNotice.current = "";
+      onBus?.(null);
     }
-  }, [tracking.active]);
+  }, [tracking.active]); // eslint-disable-line react-hooks/exhaustive-deps
   const simulation =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("simulate") === "1";

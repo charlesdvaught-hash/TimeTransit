@@ -41,6 +41,7 @@ export function Hud({ controller }: { controller: TransitController }) {
       <TripTracker
         legs={legs}
         onApply={chain ? undefined : controller.reroute}
+        onBus={controller.setLiveBus}
       />
     </div>
   );

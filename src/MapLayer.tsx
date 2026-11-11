@@ -26,6 +26,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     map,
     changeOrigin,
     locate,
+    liveBus,
   } = controller;
   const mapNode = useRef<HTMLDivElement>(null);
   const pickRef = useRef(picking);
@@ -290,12 +291,22 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           .addTo(m),
       );
     });
+    if (liveBus) {
+      const el = document.createElement("div");
+      el.className = "bus-dot";
+      el.title = "Live vehicle position";
+      markers.push(
+        new maplibregl.Marker({ element: el })
+          .setLngLat([liveBus.lon, liveBus.lat])
+          .addTo(m),
+      );
+    }
     return () => {
       m.off("style.load", draw);
       cancelAnimationFrame(frame);
       markers.forEach((x) => x.remove());
     };
-  }, [origin, results, selected, trip, chain, basemap]);
+  }, [origin, results, selected, trip, chain, basemap, liveBus]);
   const choose = (b: Basemap) => {
     setBasemap(b);
     saveBasemap(b);
@@ -303,6 +314,11 @@ export function MapLayer({ controller }: { controller: TransitController }) {
   return (
     <>
       <div ref={mapNode} className="map" />
+      {liveBus && (
+        <div className="live-badge" title="Live vehicle position">
+          <img src="transit-api-badge.svg" alt="Powered by Transit" />
+        </div>
+      )}
       <div className="basemap-switch" role="group" aria-label="Basemap">
         <button
           className={basemap === "dark" ? "active" : ""}
