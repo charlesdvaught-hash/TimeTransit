@@ -9,6 +9,8 @@ import {
   type Basemap,
 } from "./basemap";
 import { decode } from "./core";
+import { loadScanIndex } from "./scanData";
+import { buildNetwork, arrowImage } from "./networkGeo";
 import { hasSavedOrigin } from "./preferences";
 import type { TransitController } from "./useTimeTransit";
 maplibregl.setWorkerUrl(workerUrl);
@@ -56,7 +58,88 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       if (e.error?.message) setError(`Map: ${e.error.message}`);
     });
     if (!hasSavedOrigin()) locate();
-    return () => m.remove();
+
+    // Ambient route network — every OCTA stop-to-stop hop, deduped.
+    let ambientFC: GeoJSON.FeatureCollection | null = null;
+    const drawAmbient = () => {
+      if (!ambientFC || !m.isStyleLoaded()) return;
+      if (m.getLayer("ambient-glow")) m.removeLayer("ambient-glow");
+      if (m.getLayer("ambient-core")) m.removeLayer("ambient-core");
+      if (m.getLayer("ambient-line")) m.removeLayer("ambient-line");
+      if (m.getLayer("ambient-arrows")) m.removeLayer("ambient-arrows");
+      if (m.getSource("ambient")) m.removeSource("ambient");
+      m.addSource("ambient", { type: "geojson", data: ambientFC });
+      const sat = m.getContainer().classList.contains("satellite");
+      if (sat) {
+        // Mundane mode: lines with direction arrows.
+        m.addLayer({
+          id: "ambient-line",
+          type: "line",
+          source: "ambient",
+          paint: {
+            "line-color": "#cfe9ff",
+            "line-width": 2,
+            "line-opacity": 0.5,
+          },
+        });
+        if (!m.hasImage("net-arrow")) m.addImage("net-arrow", arrowImage());
+        m.addLayer({
+          id: "ambient-arrows",
+          type: "symbol",
+          source: "ambient",
+          layout: {
+            "symbol-placement": "line",
+            "symbol-spacing": 60,
+            "icon-image": "net-arrow",
+            "icon-size": 0.7,
+            "icon-rotation-alignment": "map",
+          },
+        });
+      } else {
+        m.addLayer({
+          id: "ambient-glow",
+          type: "line",
+          source: "ambient",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#3fa7ff",
+            "line-width": 7,
+            "line-blur": 5,
+            "line-opacity": 0.14,
+          },
+        });
+        m.addLayer({
+          id: "ambient-core",
+          type: "line",
+          source: "ambient",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#7cc7ff",
+            "line-width": 1.5,
+            "line-opacity": 0.35,
+          },
+        });
+      }
+    };
+    loadScanIndex()
+      .then((index) => {
+        if (!index) return;
+        ambientFC = buildNetwork(index);
+        drawAmbient();
+      })
+      .catch(() => {});
+    m.on("style.load", drawAmbient);
+    // Slow breathing pulse on the dark-basemap glow.
+    const beat = setInterval(() => {
+      if (!m.getLayer("ambient-glow")) return;
+      const t = 0.5 + 0.5 * Math.sin(Date.now() / 1400);
+      m.setPaintProperty("ambient-glow", "line-opacity", 0.08 + 0.12 * t);
+      m.setPaintProperty("ambient-glow", "line-width", 6 + 3 * t);
+    }, 120);
+    return () => {
+      clearInterval(beat);
+      m.remove();
+    };
   }, []);
   useEffect(() => {
     map.current
