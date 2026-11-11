@@ -32,6 +32,7 @@ type MergedItinerary = {
 };
 type RouteDeparture = {
   global_stop_id?: string;
+  global_route_id?: string;
   route_short_name?: string;
   route_long_name?: string;
   route_display_short_name?: { elements?: (string | null)[] };
@@ -207,4 +208,53 @@ export async function liveDeparture(
   signal?: AbortSignal,
 ): Promise<LiveDeparture | undefined> {
   return (await liveDepartures([leg], signal))[0];
+}
+
+// Live bus position via Transit's /v4/vehicles — fallback when the
+// keyless GTFS-RT feed has no match (non-OCTA legs, missing trips).
+export async function liveVehicle(
+  leg: Leg,
+  signal?: AbortSignal,
+): Promise<{ lat: number; lon: number; label?: string } | undefined> {
+  const stops = await get(
+    `/v4/public/nearby_stops?lat=${leg.from.lat}&lon=${leg.from.lon}&max_distance=250`,
+    signal,
+  );
+  const stop = nearestStop(stops.stops || [], leg.from);
+  if (!stop) return;
+  const at = Math.floor(
+    Date.parse(leg.scheduledStartTime || leg.startTime) / 1000 - 180,
+  );
+  const deps = await get(
+    `/v4/public/stop_departures?global_stop_ids=${encodeURIComponent(stop.global_stop_id)}&time=${at}&max_num_departures=10&merge_platform_stops=true`,
+    signal,
+  );
+  const match = pickDeparture(
+    ((deps.route_departures || []) as RouteDeparture[]).filter(
+      (r) => r.global_stop_id === stop.global_stop_id,
+    ),
+    leg,
+  );
+  const routeId = match?.route.global_route_id;
+  if (!routeId) return;
+  // Positions must be fresh — bypass get()'s response cache.
+  if (disabled) return;
+  const resp = await fetch(
+    `${relay}/v4/vehicles?global_route_id=${encodeURIComponent(routeId)}`,
+    { signal },
+  );
+  if (!resp.ok) return;
+  const vehicles = ((await resp.json()).vehicles || []) as {
+    rt_trip_id?: string;
+    latitude: number;
+    longitude: number;
+    external_vehicle_id?: string;
+  }[];
+  const v =
+    vehicles.find(
+      (x) => x.rt_trip_id && x.rt_trip_id === match.item.rt_trip_id,
+    ) ?? (vehicles.length === 1 ? vehicles[0] : undefined);
+  return v
+    ? { lat: v.latitude, lon: v.longitude, label: v.external_vehicle_id }
+    : undefined;
 }

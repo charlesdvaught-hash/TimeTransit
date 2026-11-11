@@ -10,6 +10,7 @@ import { useTripTracking } from "./useTripTracking";
 import { addObservations } from "./reliabilityStore";
 import { observation } from "./reliability";
 import { fetchTripDelays, fetchVehiclePositions } from "./gtfsrt";
+import { liveVehicle } from "./transit";
 import { loadScanIndex } from "./scanData";
 import { inCoverage } from "./scan";
 import { liveBusFor, watchJourney, type WatchdogResult } from "./watchdog";
@@ -61,9 +62,13 @@ export function TripTracker({
       ]);
       if (!alive) return;
       const leg = transit[w.legIndex];
-      onBus?.(
-        vehicles && leg ? liveBusFor(index, leg, vehicles, Date.now()) : null,
-      );
+      let bus =
+        vehicles && leg ? liveBusFor(index, leg, vehicles, Date.now()) : null;
+      // GTFS-RT has no match (non-OCTA leg or missing trip) — try
+      // Transit's vehicle feed, which covers all agencies it serves.
+      if (!bus && leg)
+        bus = (await liveVehicle(leg).catch(() => undefined)) ?? null;
+      onBus?.(bus);
       const r = watchJourney({
         index,
         legs,
