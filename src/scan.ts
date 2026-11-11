@@ -243,6 +243,39 @@ export function scan(
   return best;
 }
 
+// STAGE-2: reachable stop set as a first-class list for corridor filtering
+export type ScanReach = {
+  lat: number;
+  lon: number;
+  minutes: number;
+  id: string;
+  delaySec: number;
+};
+export function reachableStops(
+  index: ScanIndex,
+  origin: { lat: number; lon: number },
+  t0: number,
+  opts: ScanOpts = {},
+): ScanReach[] {
+  const baseline = opts.delays
+    ? scan(index, origin, t0, { ...opts, delays: undefined })
+    : undefined;
+  const out: ScanReach[] = [];
+  for (const [si, at] of scan(index, origin, t0, opts)) {
+    const minutes = (at - t0) / 60000;
+    if (minutes < 0 || minutes >= 600) continue;
+    const s = index.stops[si];
+    out.push({
+      lat: s.la,
+      lon: s.lo,
+      minutes,
+      id: s.i,
+      delaySec: baseline ? (at - (baseline.get(si) ?? at)) / 1000 : 0,
+    });
+  }
+  return out.sort((a, b) => a.minutes - b.minutes);
+}
+
 // earliest arrival at an arbitrary point: best stop arrival + straight-line walk-off
 export function arrivalAtPoint(
   index: ScanIndex,

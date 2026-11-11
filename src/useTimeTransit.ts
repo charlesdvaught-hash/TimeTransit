@@ -15,7 +15,7 @@ import {
   type TripChain,
 } from "./core";
 import { search, plan, planOptions, nearby, reachable } from "./api";
-import { inCoverage, scan } from "./scan";
+import { inCoverage, reachableStops } from "./scan";
 import { loadScanIndex } from "./scanData";
 import { fetchTripDelays } from "./gtfsrt";
 import { loadPlaces, searchPlaces } from "./places";
@@ -334,19 +334,14 @@ export function useTimeTransit() {
             ? await fetchTripDelays(c.signal).catch(() => undefined)
             : undefined;
         if (c.signal.aborted) return;
-        for (const [si, at] of scan(scanIdx, origin, t0, {
-          walkSpeed: preferences.walkingSpeed,
-          maxWalkM: preferences.walkDistance,
-          delays,
-        })) {
-          const minutes = (at - t0) / 60000;
-          if (minutes >= 0 && minutes < 600)
-            stops.push({
-              lat: scanIdx.stops[si].la,
-              lon: scanIdx.stops[si].lo,
-              minutes,
-            });
-        }
+        // STAGE-2
+        stops.push(
+          ...reachableStops(scanIdx, origin, t0, {
+            walkSpeed: preferences.walkingSpeed,
+            maxWalkM: preferences.walkDistance,
+            delays,
+          }),
+        );
       }
       const planned = rankByReachability(
         origin,

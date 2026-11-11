@@ -245,7 +245,14 @@ export function fastest(
 export function rank(results: Result[]) {
   return [...results].sort((a, b) => a.trip.duration - b.trip.duration);
 }
-export type ReachableStop = { lat: number; lon: number; minutes: number };
+// STAGE-2
+export type ReachableStop = {
+  lat: number;
+  lon: number;
+  minutes: number;
+  id?: string;
+  delaySec?: number;
+};
 export function rankByReachability(
   origin: Place,
   places: Place[],

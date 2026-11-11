@@ -3,9 +3,11 @@ import {
   arrivalAtPoint,
   inCoverage,
   localDay,
+  reachableStops,
   scan,
   type ScanIndex,
 } from "./scan";
+import type { TripDelays } from "./gtfsrt";
 
 // Tiny fixture: stops 0..6 spaced ~1.1km apart (0.01 lat each at lat 33),
 // beyond the 800m origin-walk reach so only stop 0 is seeded.
@@ -161,5 +163,60 @@ describe("inCoverage", () => {
   it("bbox contains test area, excludes elsewhere", () => {
     expect(inCoverage(base, { lat: 33.0, lon: -117 })).toBe(true);
     expect(inCoverage(base, { lat: 34.1, lon: -118.3 })).toBe(false);
+  });
+});
+
+describe("reachableStops", () => {
+  it("returns sorted, filtered stops with ids and zero delay", () => {
+    const out = reachableStops(base, ORIGIN, LA_MON_0730, { tz: TZ });
+    expect(out.length).toBeGreaterThan(0);
+    for (const s of out) {
+      expect(s.minutes).toBeGreaterThanOrEqual(0);
+      expect(s.minutes).toBeLessThan(600);
+      expect(s.id).toBe(`s${s.lat}`);
+      expect(s.delaySec).toBe(0);
+    }
+    const mins = out.map((s) => s.minutes);
+    expect(mins).toEqual([...mins].sort((a, b) => a - b));
+    expect(out.find((s) => s.id === "s33.03")).toMatchObject({
+      lat: 33.03,
+      lon: -117,
+      minutes: 33,
+    });
+    // overnight arrival past the 10h cap is filtered out
+    expect(out.some((s) => s.id === "s33.09")).toBe(false);
+  });
+  it("annotates delaySec against the no-delay baseline", () => {
+    const idx: ScanIndex = {
+      ...base,
+      patterns: [
+        {
+          ...base.patterns[0],
+          trips: [
+            { s: 0, i: "trip-800", t: [28800, 28860, 28920, 28980] },
+            base.patterns[0].trips[1],
+          ],
+        },
+        ...base.patterns.slice(1),
+      ],
+    };
+    const delays: TripDelays = new Map([
+      [
+        "trip-800",
+        new Map([
+          ["s33.01", { d: 120 }],
+          ["s33.02", { d: 120 }],
+          ["s33.03", { d: 120 }],
+        ]),
+      ],
+    ]);
+    const out = reachableStops(idx, ORIGIN, LA_MON_0730, { tz: TZ, delays });
+    const at = (id: string) => out.find((s) => s.id === id)!;
+    expect(at("s33.03").minutes).toBeCloseTo(35);
+    expect(at("s33.03").delaySec).toBeCloseTo(120);
+    // the walk transfer off the delayed trip inherits the delay
+    expect(at("s33.04").delaySec).toBeCloseTo(120);
+    // reached via an unaffected route
+    expect(at("s33.05").delaySec).toBe(0);
   });
 });
