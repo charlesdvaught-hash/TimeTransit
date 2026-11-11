@@ -210,6 +210,50 @@ export async function liveDeparture(
   return (await liveDepartures([leg], signal))[0];
 }
 
+// Nearby departures for a map tap — nearest stops + soonest buses.
+export type NearbyDeparture = {
+  route: string;
+  stopName: string;
+  time: number;
+  realtime: boolean;
+};
+export async function departuresNear(
+  point: { lat: number; lon: number },
+  signal?: AbortSignal,
+): Promise<NearbyDeparture[]> {
+  const stops = await get(
+    `/v4/public/nearby_stops?lat=${point.lat}&lon=${point.lon}&max_distance=450`,
+    signal,
+  );
+  const top = (stops.stops || []).slice(0, 4) as TransitStop[];
+  if (!top.length) return [];
+  const at = Math.floor(Date.now() / 1000) - 60;
+  const deps = await get(
+    `/v4/public/stop_departures?global_stop_ids=${top.map((s) => encodeURIComponent(s.global_stop_id)).join(",")}&time=${at}&max_num_departures=8&merge_platform_stops=true`,
+    signal,
+  );
+  const stopName = new Map(top.map((s) => [s.global_stop_id, s.stop_name]));
+  const out: NearbyDeparture[] = [];
+  for (const row of (deps.route_departures || []) as RouteDeparture[]) {
+    const next = row.merged_itineraries
+      .flatMap((i) => i.schedule_items)
+      .filter((s) => s.departure_time > at)
+      .sort((a, b) => a.departure_time - b.departure_time)[0];
+    if (!next) continue;
+    out.push({
+      route:
+        row.route_short_name ||
+        row.route_display_short_name?.elements?.[1] ||
+        row.route_long_name ||
+        "?",
+      stopName: stopName.get(row.global_stop_id || "") || "",
+      time: next.departure_time * 1000,
+      realtime: !!next.is_real_time,
+    });
+  }
+  return out.sort((a, b) => a.time - b.time).slice(0, 6);
+}
+
 // Route tap → stops along the line + next live departures near the tap.
 export type RouteInfo = {
   name: string;

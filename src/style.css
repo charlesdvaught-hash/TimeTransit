@@ -1291,3 +1291,21 @@ button:hover {
   color: #7cc7ff;
   font-size: 12px;
 }
+.map-card-deps {
+  margin: 6px 0;
+  border-bottom: 1px solid #233246;
+  padding-bottom: 6px;
+}
+.map-card-dep {
+  display: grid;
+  grid-template-columns: 44px 70px 1fr;
+  gap: 6px;
+  align-items: baseline;
+  margin: 3px 0;
+}
+.map-card-dep strong {
+  color: #ffd23f;
+}
+.map-card-dep span:nth-child(2) {
+  color: #9fd8a8;
+}

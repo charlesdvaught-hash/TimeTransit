@@ -17,7 +17,12 @@ import {
   type ArrowField,
 } from "./networkGeo";
 import { nearestPlaces } from "./places";
-import { routeInfoAt, type RouteInfo } from "./transit";
+import {
+  departuresNear,
+  routeInfoAt,
+  type NearbyDeparture,
+  type RouteInfo,
+} from "./transit";
 import { hasSavedOrigin } from "./preferences";
 import type { TransitController } from "./useTimeTransit";
 maplibregl.setWorkerUrl(workerUrl);
@@ -52,6 +57,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
   >(null);
   const [placeCard, setPlaceCard] = useState<{
     places: { id: string; name: string; address?: string }[];
+    deps?: NearbyDeparture[];
     at: { lat: number; lon: number };
   } | null>(null);
   pickRef.current = picking;
@@ -75,12 +81,23 @@ export function MapLayer({ controller }: { controller: TransitController }) {
         });
         return;
       }
-      // tapped a route line? show its stops + next departures
-      const hit = m.queryRenderedFeatures(e.point, {
-        layers: ["ambient-flow", "ambient-core", "ambient-line"].filter((l) =>
-          m.getLayer(l),
-        ),
-      })[0];
+      // tapped a route line? show its stops + next departures.
+      // query a 12px box — thin lines (and dash gaps) are hard to hit,
+      // and the fat glow layer makes a generous target.
+      const hit = m.queryRenderedFeatures(
+        [
+          [e.point.x - 12, e.point.y - 12],
+          [e.point.x + 12, e.point.y + 12],
+        ],
+        {
+          layers: [
+            "ambient-glow",
+            "ambient-flow",
+            "ambient-core",
+            "ambient-line",
+          ].filter((l) => m.getLayer(l)),
+        },
+      )[0];
       if (hit?.properties?.n && hit.properties.n !== "?") {
         const p = hit.properties;
         setRouteCard({
@@ -106,17 +123,16 @@ export function MapLayer({ controller }: { controller: TransitController }) {
         setPlaceCard(null);
         return;
       }
-      // otherwise: what's here? nearest known places
-      const places = nearestPlaces({
-        lat: e.lngLat.lat,
-        lon: e.lngLat.lng,
-      });
-      setPlaceCard(
-        places.length
-          ? { places, at: { lat: e.lngLat.lat, lon: e.lngLat.lng } }
-          : null,
-      );
+      // otherwise: what's here? nearest places + stops/departures
+      const at = { lat: e.lngLat.lat, lon: e.lngLat.lng };
+      const places = nearestPlaces(at);
+      setPlaceCard({ places, at });
       setRouteCard(null);
+      departuresNear(at)
+        .then((deps) =>
+          setPlaceCard((c) => (c?.at === at ? { ...c, deps } : c)),
+        )
+        .catch(() => {});
     });
     m.on("error", (e) => {
       if (e.error?.message) setError(`Map: ${e.error.message}`);
@@ -586,6 +602,24 @@ export function MapLayer({ controller }: { controller: TransitController }) {
               ×
             </button>
           </div>
+          {placeCard.deps && placeCard.deps.length > 0 && (
+            <div className="map-card-deps">
+              <span className="map-card-sub">Nearby departures</span>
+              {placeCard.deps.map((d, i) => (
+                <div key={i} className="map-card-dep">
+                  <strong>{d.route}</strong>
+                  <span>
+                    {new Date(d.time).toLocaleTimeString([], {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                    {d.realtime ? " ●" : ""}
+                  </span>
+                  <span className="map-card-sub">{d.stopName}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {placeCard.places.map((p) => (
             <div key={p.id} className="map-card-place">
               <strong>{p.name}</strong>
