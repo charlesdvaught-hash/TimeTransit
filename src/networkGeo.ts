@@ -36,13 +36,13 @@ export function arrowImage(size = 24): ImageData {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#eaf6ff";
+  ctx.fillStyle = "#10161f";
   ctx.beginPath();
   const s = size;
-  ctx.moveTo(s * 0.75, s * 0.5);
-  ctx.lineTo(s * 0.25, s * 0.18);
-  ctx.lineTo(s * 0.38, s * 0.5);
-  ctx.lineTo(s * 0.25, s * 0.82);
+  ctx.moveTo(s * 0.8, s * 0.5);
+  ctx.lineTo(s * 0.2, s * 0.12);
+  ctx.lineTo(s * 0.36, s * 0.5);
+  ctx.lineTo(s * 0.2, s * 0.88);
   ctx.closePath();
   ctx.fill();
   return ctx.getImageData(0, 0, size, size);

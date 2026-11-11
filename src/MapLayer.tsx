@@ -71,15 +71,27 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       m.addSource("ambient", { type: "geojson", data: ambientFC });
       const sat = m.getContainer().classList.contains("satellite");
       if (sat) {
-        // Mundane mode: lines with direction arrows.
+        // Mundane mode: dark casing + bright core + direction arrows.
         m.addLayer({
           id: "ambient-line",
           type: "line",
           source: "ambient",
+          layout: { "line-cap": "round" },
           paint: {
-            "line-color": "#cfe9ff",
-            "line-width": 2,
-            "line-opacity": 0.5,
+            "line-color": "#0a0f16",
+            "line-width": 6,
+            "line-opacity": 0.75,
+          },
+        });
+        m.addLayer({
+          id: "ambient-core",
+          type: "line",
+          source: "ambient",
+          layout: { "line-cap": "round" },
+          paint: {
+            "line-color": "#ffd23f",
+            "line-width": 3,
+            "line-opacity": 0.95,
           },
         });
         if (!m.hasImage("net-arrow")) m.addImage("net-arrow", arrowImage());
@@ -89,10 +101,12 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           source: "ambient",
           layout: {
             "symbol-placement": "line",
-            "symbol-spacing": 60,
+            "symbol-spacing": 40,
             "icon-image": "net-arrow",
-            "icon-size": 0.7,
+            "icon-size": 0.55,
             "icon-rotation-alignment": "map",
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
           },
         });
       } else {
@@ -103,9 +117,9 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
             "line-color": "#3fa7ff",
-            "line-width": 7,
-            "line-blur": 5,
-            "line-opacity": 0.14,
+            "line-width": 9,
+            "line-blur": 6,
+            "line-opacity": 0.22,
           },
         });
         m.addLayer({
@@ -114,9 +128,9 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           source: "ambient",
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
-            "line-color": "#7cc7ff",
-            "line-width": 1.5,
-            "line-opacity": 0.35,
+            "line-color": "#8fd0ff",
+            "line-width": 2.5,
+            "line-opacity": 0.6,
           },
         });
       }
@@ -133,8 +147,8 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     const beat = setInterval(() => {
       if (!m.getLayer("ambient-glow")) return;
       const t = 0.5 + 0.5 * Math.sin(Date.now() / 1400);
-      m.setPaintProperty("ambient-glow", "line-opacity", 0.08 + 0.12 * t);
-      m.setPaintProperty("ambient-glow", "line-width", 6 + 3 * t);
+      m.setPaintProperty("ambient-glow", "line-opacity", 0.12 + 0.18 * t);
+      m.setPaintProperty("ambient-glow", "line-width", 8 + 4 * t);
     }, 120);
     return () => {
       clearInterval(beat);
