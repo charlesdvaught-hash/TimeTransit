@@ -4,3 +4,4 @@ dist
 .env*
 data/
 dev-server.log
+scripts/llm-probe.results.json

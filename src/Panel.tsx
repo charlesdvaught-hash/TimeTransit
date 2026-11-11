@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Clock3, LocateFixed, Navigation, Search, X } from "lucide-react";
 import { searchOrigin } from "./api";
-import { PreferencesPanel } from "./PreferencesPanel";
-import { ReliabilityPanel } from "./ReliabilityPanel";
+import { SettingsPanel } from "./SettingsPanel";
 import { delayText, minutes, time, transfers } from "./display";
 import { ResultsList } from "./ResultsList";
 import type { TransitController } from "./useTimeTransit";
@@ -137,11 +136,7 @@ export function Panel({ controller }: { controller: TransitController }) {
           />
         )}
       </div>
-      <details className="utility-panel settings-panel">
-        <summary>Settings</summary>
-        <PreferencesPanel controller={controller} />
-        <ReliabilityPanel />
-      </details>
+      <SettingsPanel controller={controller} />
       <ResultsList controller={controller} />
       {error && (
         <div role="alert" className="error">
@@ -205,9 +200,6 @@ export function Panel({ controller }: { controller: TransitController }) {
           ))}
         </details>
       )}
-      <footer>
-        <span className="live-dot" /> Powered by local transit
-      </footer>
     </aside>
   );
 }
