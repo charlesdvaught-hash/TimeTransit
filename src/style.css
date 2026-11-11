@@ -475,6 +475,31 @@ header {
   font-size: 11px;
   border-radius: 999px;
 }
+/* STAGE-1: semantic interpretation chip, portaled under the search input */
+.interpreted {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  font-size: 10px;
+  color: #859bb3;
+  border: 1px solid #4d9eff33;
+  border-radius: 8px;
+  background: #247ce51f;
+}
+.interpreted strong {
+  color: #8fc1ff;
+  font-weight: 500;
+}
+.interpreted button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding: 2px;
+  color: #7d93ab;
+}
 .categories {
   display: flex;
   flex-wrap: nowrap;
