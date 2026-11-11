@@ -10,6 +10,9 @@ import {
   type TripChain,
 } from "./core";
 import { search, plan, nearby } from "./api";
+import { observation } from "./reliability";
+import { addObservations } from "./reliabilityStore";
+import { liveDeparture, type LiveDeparture } from "./transit";
 import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
 import {
   loadOrigin,
@@ -33,24 +36,29 @@ export function useTimeTransit() {
     [progress, setProgress] = useState([0, 0]),
     [error, setError] = useState(""),
     [providers, setProviders] = useState<string[]>([]),
-    [tab, setTab] = useState("explore"),
     [picking, setPicking] = useState(false),
     [departure, updateDeparture] = useState(""),
-    [stops, updateStops] = useState<Stop[]>([]),
+    [dwell, updateDwell] = useState(15),
+    [pinned, setPinned] = useState<Record<string, Place>>({}),
     [back, updateBack] = useState(true),
     [chain, setChain] = useState<TripChain | null>(null),
     [now, setNow] = useState(new Date()),
     [originSearch, setOriginSearch] = useState(""),
-    [originOptions, setOriginOptions] = useState<Place[]>([]);
+    [originOptions, setOriginOptions] = useState<Place[]>([]),
+    [locating, setLocating] = useState(false),
+    [liveDepartures, setLiveDepartures] = useState<
+      Record<number, LiveDeparture>
+    >({});
   function invalidateTrip() {
     tripAbort.current?.abort();
     tripAbort.current = null;
     setTripBusy(false);
     setChain(null);
   }
-  function setStops(value: Stop[]) {
+  function setDwell(value: number) {
+    if (!Number.isFinite(value) || value < 0 || value > 240) return;
     invalidateTrip();
-    updateStops(value);
+    updateDwell(value);
   }
   function setBack(value: boolean) {
     invalidateTrip();
@@ -88,21 +96,33 @@ export function useTimeTransit() {
     setProviders((previous) => [...new Set([...previous, ...names])]);
   }
   function locate() {
-    navigator.geolocation
-      ? navigator.geolocation.getCurrentPosition(
-          (p) =>
-            changeOrigin({
-              id: "gps",
-              name: "Your location",
-              lat: p.coords.latitude,
-              lon: p.coords.longitude,
-            }),
-          () =>
-            setError(
-              "Location unavailable. Keeping the current origin — search an address or pick on the map.",
-            ),
-        )
-      : setError("Geolocation is not supported.");
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported in this browser.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setLocating(false);
+        changeOrigin({
+          id: "gps",
+          name: "Your location",
+          lat: p.coords.latitude,
+          lon: p.coords.longitude,
+        });
+      },
+      (e) => {
+        setLocating(false);
+        setError(
+          e.code === e.PERMISSION_DENIED
+            ? "Location permission denied. Allow location for this site in your browser's address-bar settings, or search an address instead."
+            : e.code === e.TIMEOUT
+              ? "Location request timed out. Try again or search an address instead."
+              : "Location unavailable. Keeping the current origin — search an address or pick on the map.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
   }
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -119,8 +139,41 @@ export function useTimeTransit() {
       });
     return () => c.abort();
   }, [origin]);
-  async function run(term: string) {
+  useEffect(() => {
+    setLiveDepartures({});
+    if (!selected) return;
+    const c = new AbortController();
+    selected.trip.legs.forEach(async (leg, index) => {
+      if (leg.mode === "WALK" || !leg.tripId) return;
+      try {
+        const live = await liveDeparture(leg, c.signal);
+        if (!live || c.signal.aborted) return;
+        setLiveDepartures((previous) => ({ ...previous, [index]: live }));
+        if (live.realtime && !live.cancelled)
+          addObservations([
+            observation(
+              { ...leg, scheduledStartTime: live.scheduledTime },
+              "feed",
+              "departure",
+              live.expectedTime,
+            ),
+          ]);
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") console.warn(e);
+      }
+    });
+    return () => c.abort();
+  }, [selected]);
+  async function run(term: string, pins = pinned) {
     if (!term.trim()) return;
+    const segments = term
+      .split("+")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (segments.length >= 2) return runTrip(term, segments, pins);
+    return runExplore(term);
+  }
+  async function runExplore(term: string) {
     const start = departureSnapshot(departure);
     exploreAbort.current?.abort();
     invalidateTrip();
@@ -191,48 +244,62 @@ export function useTimeTransit() {
       if (!c.signal.aborted) setExploreBusy(false);
     }
   }
-  function addStop(place?: Place) {
-    if (stops.length >= 4) return;
-    setStops([
-      ...stops,
-      {
-        id: crypto.randomUUID(),
-        label: place?.name || "Coffee",
-        candidates: place ? [place] : [],
-        dwell: 15,
-      },
-    ]);
-    setTab("trip");
+  function addToTrip(place: Place) {
+    const pins = { ...pinned, [place.name.toLowerCase()]: place };
+    setPinned(pins);
+    run(query.trim() ? `${query.trim()} + ${place.name}` : place.name, pins);
   }
-  async function optimizeTrip() {
+  function calibratedSpeed() {
+    const samples = results.filter((r) => r.trip.duration > 0);
+    return samples.length
+      ? Math.max(
+          5,
+          Math.min(
+            45,
+            samples.reduce(
+              (s, r) => s + (r.distance / r.trip.duration) * 3600,
+              0,
+            ) / samples.length,
+          ),
+        )
+      : 18;
+  }
+  async function runTrip(term: string, segments: string[], pins = pinned) {
+    if (segments.length > 4) {
+      setError(
+        "Multi-stop trips take up to 4 destinations — separate them with +.",
+      );
+      return;
+    }
     tripAbort.current?.abort();
+    exploreAbort.current?.abort();
+    setExploreBusy(false);
     const c = new AbortController();
     tripAbort.current = c;
+    setQuery(term);
     setTripBusy(true);
     setError("");
+    const speed = calibratedSpeed();
+    setResults([]);
+    setSelected(null);
     setChain(null);
     try {
       const start = departureSnapshot(departure);
       const resolved = await resolveTripCandidates(
-        stops,
+        segments.map((label, i) => {
+          const hit = pins[label.toLowerCase()];
+          return {
+            id: `seg-${i}`,
+            label: hit?.name || label,
+            candidates: hit ? [hit] : [],
+            dwell,
+          };
+        }),
         (query) => search(query, origin, c.signal),
         (place) =>
           plan(origin, place, start, c.signal, preferences, recordProviders),
         c.signal,
       );
-      const samples = results.filter((r) => r.trip.duration > 0);
-      const speed = samples.length
-        ? Math.max(
-            5,
-            Math.min(
-              45,
-              samples.reduce(
-                (s, r) => s + (r.distance / r.trip.duration) * 3600,
-                0,
-              ) / samples.length,
-            ),
-          )
-        : 18;
       const trip = await optimize(
         origin,
         resolved,
@@ -273,14 +340,12 @@ export function useTimeTransit() {
     setError,
     providers,
     setProviders,
-    tab,
-    setTab,
     picking,
     setPicking,
     departure,
     setDeparture,
-    stops,
-    setStops,
+    dwell,
+    setDwell,
     back,
     setBack,
     chain,
@@ -291,12 +356,13 @@ export function useTimeTransit() {
     setOriginSearch,
     originOptions,
     setOriginOptions,
+    liveDepartures,
+    locating,
     map,
     changeOrigin,
     locate,
     run,
-    addStop,
-    optimizeTrip,
+    addToTrip,
     total,
   };
 }

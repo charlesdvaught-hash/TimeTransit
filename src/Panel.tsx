@@ -1,16 +1,8 @@
-import {
-  Clock3,
-  LocateFixed,
-  Navigation,
-  Route,
-  Search,
-  X,
-} from "lucide-react";
+import { Clock3, LocateFixed, Navigation, Search, X } from "lucide-react";
 import { searchOrigin } from "./api";
 import { PreferencesPanel } from "./PreferencesPanel";
 import { ReliabilityPanel } from "./ReliabilityPanel";
-import { minutes, time, transfers } from "./display";
-import { MultiStopPlanner } from "./MultiStopPlanner";
+import { delayText, minutes, time, transfers } from "./display";
 import { ResultsList } from "./ResultsList";
 import type { TransitController } from "./useTimeTransit";
 export function Panel({ controller }: { controller: TransitController }) {
@@ -19,18 +11,17 @@ export function Panel({ controller }: { controller: TransitController }) {
     selected,
     error,
     setError,
-    tab,
-    setTab,
     picking,
     setPicking,
     departure,
     setDeparture,
-    stops,
     chain,
     originSearch,
     setOriginSearch,
     originOptions,
     setOriginOptions,
+    liveDepartures,
+    locating,
     changeOrigin,
     locate,
   } = controller;
@@ -51,7 +42,7 @@ export function Panel({ controller }: { controller: TransitController }) {
           <small>STARTING FROM</small>
           <strong>{origin.name}</strong>
         </div>
-        <button title="Use my location" onClick={locate}>
+        <button title="Use my location" onClick={locate} disabled={locating}>
           <LocateFixed size={17} />
         </button>
         <button
@@ -65,6 +56,10 @@ export function Panel({ controller }: { controller: TransitController }) {
       {picking && (
         <p className="notice">Click anywhere on the map to set your origin.</p>
       )}
+      <button className="use-location" onClick={locate} disabled={locating}>
+        <LocateFixed size={13} />
+        {locating ? "Locating…" : "Use my location"}
+      </button>
       <form
         className="address-form"
         onSubmit={async (e) => {
@@ -99,22 +94,6 @@ export function Panel({ controller }: { controller: TransitController }) {
           {p.name} <small>{p.address}</small>
         </button>
       ))}
-      <div className="tabs">
-        <button
-          className={tab === "explore" ? "chosen" : ""}
-          onClick={() => setTab("explore")}
-        >
-          <Search size={15} />
-          Explore
-        </button>
-        <button
-          className={tab === "trip" ? "chosen" : ""}
-          onClick={() => setTab("trip")}
-        >
-          <Route size={15} />
-          Multi-stop trip {stops.length > 0 && <b>{stops.length}</b>}
-        </button>
-      </div>
       <div className="departure">
         <Clock3 size={14} />
         <span>Departure</span>
@@ -145,11 +124,7 @@ export function Panel({ controller }: { controller: TransitController }) {
       </div>
       <PreferencesPanel controller={controller} />
       <ReliabilityPanel />
-      {tab === "explore" ? (
-        <ResultsList controller={controller} />
-      ) : (
-        <MultiStopPlanner controller={controller} />
-      )}
+      <ResultsList controller={controller} />
       {error && (
         <div role="alert" className="error">
           <span>{error}</span>
@@ -158,7 +133,7 @@ export function Panel({ controller }: { controller: TransitController }) {
           </button>
         </div>
       )}
-      {selected && tab === "explore" && !chain && (
+      {selected && !chain && (
         <details className="directions">
           <summary>
             Journey details <span>{transfers(selected.trip.transfers)}</span>
@@ -186,6 +161,15 @@ export function Panel({ controller }: { controller: TransitController }) {
                   {time(l.startTime)} – {time(l.endTime)} ·{" "}
                   {minutes(l.duration)} min {l.headsign && `· ${l.headsign}`}
                 </small>
+                {liveDepartures[i] && (
+                  <small className="live-departure">
+                    {liveDepartures[i].cancelled
+                      ? `Cancelled${liveDepartures[i].network ? ` · ${liveDepartures[i].network}` : ""}`
+                      : liveDepartures[i].realtime
+                        ? `Live: departs ${time(liveDepartures[i].expectedTime)} · ${delayText(liveDepartures[i].delay)}${liveDepartures[i].network ? ` · ${liveDepartures[i].network}` : ""}`
+                        : `Scheduled only · no realtime${liveDepartures[i].network ? ` · ${liveDepartures[i].network}` : ""}`}
+                  </small>
+                )}
               </div>
             </div>
           ))}

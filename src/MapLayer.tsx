@@ -36,6 +36,25 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       new maplibregl.NavigationControl({ showCompass: false }),
       "top-right",
     );
+    const geolocate = new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true, timeout: 15000 },
+      trackUserLocation: false,
+      showUserLocation: true,
+    });
+    geolocate.on("geolocate", (e) =>
+      changeOrigin({
+        id: "gps",
+        name: "Your location",
+        lat: e.coords.latitude,
+        lon: e.coords.longitude,
+      }),
+    );
+    geolocate.on("error", (e) =>
+      setError(
+        `Location: ${e.message || "permission denied or position unavailable"}`,
+      ),
+    );
+    m.addControl(geolocate, "top-right");
     m.on("click", (e) => {
       if (pickRef.current)
         changeOrigin({

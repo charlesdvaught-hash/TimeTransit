@@ -2,6 +2,7 @@ import {
   categories,
   distance,
   fastest,
+  matchCategory,
   type Place,
   type Itinerary,
 } from "./core";
@@ -46,8 +47,11 @@ async function json(url: string, signal?: AbortSignal): Promise<any> {
     queue.shift()?.();
   }
 }
-export function searchParams(query: string, origin: Place): URLSearchParams {
-  const tag = categories[query];
+export function searchParams(
+  query: string,
+  origin: Place,
+  tag = categories[query],
+): URLSearchParams {
   const dx = 0.24 / Math.cos((origin.lat * Math.PI) / 180);
   const params = new URLSearchParams({
     lat: String(origin.lat),
@@ -64,9 +68,23 @@ export async function search(
   origin: Place,
   signal?: AbortSignal,
 ): Promise<Place[]> {
-  const params = searchParams(query, origin);
-  const data = await json(`https://photon.komoot.io/api/?${params}`, signal);
-  return data.features
+  const requests = matchCategory(query).map((tag) =>
+    json(
+      `https://photon.komoot.io/api/?${searchParams(query, origin, tag)}`,
+      signal,
+    ),
+  );
+  if (!categories[query])
+    requests.push(
+      json(
+        `https://photon.komoot.io/api/?${searchParams(query, origin, "")}`,
+        signal,
+      ),
+    );
+  const responses = await Promise.all(requests);
+  if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+  return responses
+    .flatMap((data: any) => data.features || [])
     .map((f: any) => ({
       id: `${f.properties.osm_type}${f.properties.osm_id}`,
       name: f.properties.name || f.properties.street || query,

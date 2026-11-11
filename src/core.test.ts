@@ -7,6 +7,8 @@ import {
   decode,
   combinations,
   optimize,
+  editDistance,
+  matchCategory,
   type Place,
   type Itinerary,
   type Stop,
@@ -69,6 +71,39 @@ describe("routing primitives", () => {
     ]);
     expect(decode("_p~iF~ps|U", 7)[0]).toEqual([-1.202, 0.385]);
     expect(decode("", 7)).toEqual([]);
+  });
+});
+describe("fuzzy category matching", () => {
+  it("measures edit distance for typo tolerance", () => {
+    expect(editDistance("groery", "grocery")).toBe(1);
+    expect(editDistance("pharmacy", "pharmacy")).toBe(0);
+    expect(editDistance("walmart", "market")).toBeGreaterThan(2);
+  });
+  it("resolves typos and natural phrasing to OSM tags", () => {
+    expect(matchCategory("groery store")).toEqual([
+      "shop:supermarket",
+      "shop:convenience",
+    ]);
+    expect(matchCategory("grocery store")).toEqual([
+      "shop:supermarket",
+      "shop:convenience",
+    ]);
+    expect(matchCategory("urgent care")).toEqual(["amenity:clinic"]);
+    expect(matchCategory("pharmcy")).toEqual(["amenity:pharmacy"]);
+  });
+  it("keeps exact category labels on their existing tag", () => {
+    expect(matchCategory("Grocery")).toEqual(["shop:supermarket"]);
+    expect(matchCategory("Coffee")).toEqual(["amenity:cafe"]);
+  });
+  it("leaves brand names and noise to text search", () => {
+    expect(matchCategory("Walmart")).toEqual([]);
+    expect(matchCategory("Jewel-Osco")).toEqual([]);
+    expect(matchCategory("bank of america")).toEqual([]);
+    expect(matchCategory("")).toEqual([]);
+    expect(matchCategory("store")).toEqual([]);
+  });
+  it("rejects queries with conflicting category intents", () => {
+    expect(matchCategory("coffee grocery")).toEqual([]);
   });
 });
 describe("trip optimizer", () => {

@@ -58,6 +58,115 @@ export const categories: Record<string, string> = {
   "Bank/ATM": "amenity:bank",
   Hardware: "shop:doityourself",
 };
+const synonyms: Record<string, string | string[]> = {
+  coffee: "amenity:cafe",
+  cafe: "amenity:cafe",
+  espresso: "amenity:cafe",
+  grocery: ["shop:supermarket", "shop:convenience"],
+  groceries: ["shop:supermarket", "shop:convenience"],
+  supermarket: ["shop:supermarket", "shop:convenience"],
+  market: ["shop:supermarket", "shop:convenience"],
+  pharmacy: "amenity:pharmacy",
+  drugstore: "amenity:pharmacy",
+  chemist: "amenity:pharmacy",
+  restaurant: "amenity:restaurant",
+  restaurants: "amenity:restaurant",
+  dining: "amenity:restaurant",
+  park: "leisure:park",
+  parks: "leisure:park",
+  playground: "leisure:park",
+  library: "amenity:library",
+  libraries: "amenity:library",
+  hospital: "amenity:hospital",
+  emergency: "amenity:hospital",
+  er: "amenity:hospital",
+  clinic: "amenity:clinic",
+  urgent: "amenity:clinic",
+  care: "amenity:clinic",
+  doctor: "amenity:doctors",
+  doctors: "amenity:doctors",
+  gym: "leisure:fitness_centre",
+  fitness: "leisure:fitness_centre",
+  workout: "leisure:fitness_centre",
+  bank: "amenity:bank",
+  banks: "amenity:bank",
+  atm: "amenity:atm",
+  hardware: "shop:doityourself",
+  tools: "shop:doityourself",
+};
+const searchStopwords = new Set([
+  "a",
+  "an",
+  "the",
+  "of",
+  "for",
+  "in",
+  "near",
+  "me",
+  "nearby",
+  "around",
+  "local",
+  "find",
+  "closest",
+  "nearest",
+  "best",
+  "store",
+  "stores",
+  "shop",
+  "shops",
+  "place",
+  "places",
+]);
+export function editDistance(a: string, b: string) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const curr = [i];
+    for (let j = 1; j <= b.length; j++)
+      curr[j] = Math.min(
+        prev[j] + 1,
+        curr[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    prev = curr;
+  }
+  return prev[b.length];
+}
+function synonymTags(word: string): string[] {
+  const exact = synonyms[word];
+  if (exact) return Array.isArray(exact) ? exact : [exact];
+  const tolerance = word.length >= 8 ? 2 : word.length >= 5 ? 1 : 0;
+  if (!tolerance) return [];
+  let best: string[] = [],
+    dist = Infinity;
+  for (const key of Object.keys(synonyms)) {
+    if (Math.abs(key.length - word.length) > tolerance) continue;
+    const d = editDistance(word, key);
+    if (d <= tolerance && d < dist) {
+      dist = d;
+      const tags = synonyms[key];
+      best = Array.isArray(tags) ? tags : [tags];
+    }
+  }
+  return best;
+}
+export function matchCategory(query: string): string[] {
+  if (categories[query]) return [categories[query]];
+  const content = query
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w && !searchStopwords.has(w));
+  if (!content.length) return [];
+  const tags = new Set<string>();
+  for (const word of content) {
+    const hit = synonymTags(word);
+    if (!hit.length) return [];
+    hit.forEach((t) => tags.add(t));
+    if (tags.size > 2) return [];
+  }
+  return [...tags];
+}
 export function distance(
   a: Pick<Place, "lat" | "lon">,
   b: Pick<Place, "lat" | "lon">,

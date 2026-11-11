@@ -50,7 +50,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-it("keeps Explore streaming through stop, dwell and return edits", async () => {
+it("keeps Explore streaming through dwell and return edits", async () => {
   const pending = deferred<Itinerary>();
   vi.mocked(search).mockResolvedValue([first, second]);
   vi.mocked(plan).mockImplementation(async (_origin, place) =>
@@ -59,11 +59,9 @@ it("keeps Explore streaming through stop, dwell and return edits", async () => {
   const running = render().run("Coffee");
   await vi.waitFor(() => expect(render().results).toHaveLength(1));
   const signal = vi.mocked(plan).mock.calls[0][3]!;
-  render().addStop(first);
-  let state = render();
-  state.setStops(state.stops.map((stop) => ({ ...stop, dwell: 30 })));
+  render().setDwell(30);
   render().setBack(false);
-  state = render();
+  const state = render();
   expect(signal.aborted).toBe(false);
   expect(state.exploreBusy).toBe(true);
   expect(state.tripBusy).toBe(false);
@@ -78,8 +76,7 @@ it("keeps Explore streaming through stop, dwell and return edits", async () => {
 it("cancels only optimization when trip inputs change", async () => {
   const pending = deferred<Place[]>();
   vi.mocked(search).mockReturnValue(pending.promise);
-  render().addStop();
-  const running = render().optimizeTrip();
+  const running = render().run("coffee + pharmacy");
   const signal = vi.mocked(search).mock.calls[0][2]!;
   expect(render().tripBusy).toBe(true);
   render().setBack(false);
@@ -89,6 +86,43 @@ it("cancels only optimization when trip inputs change", async () => {
   await running;
   expect(render().chain).toBeNull();
   expect(render().error).toBe("");
+});
+
+it("routes +-separated destinations through the optimizer", async () => {
+  vi.mocked(search).mockImplementation(async (q) =>
+    String(q).toLowerCase() === "coffee" ? [first] : [second],
+  );
+  vi.mocked(plan).mockResolvedValue(itinerary);
+  await render().run("coffee + pharmacy");
+  const state = render();
+  expect(state.chain).not.toBeNull();
+  expect(new Set(state.chain!.visits.map((v) => v.place.id))).toEqual(
+    new Set(["first", "second"]),
+  );
+  expect(state.results).toEqual([]);
+});
+
+it("rejects more than four destinations without requests", async () => {
+  await render().run("a + b + c + d + e");
+  expect(search).not.toHaveBeenCalled();
+  expect(render().error).toContain("4");
+});
+
+it("appends a chosen place to the box and pins it", async () => {
+  vi.mocked(search).mockImplementation(async (q) =>
+    String(q).toLowerCase() === "coffee" ? [first] : [second],
+  );
+  vi.mocked(plan).mockResolvedValue(itinerary);
+  await render().run("Coffee");
+  await vi.waitFor(() => expect(render().results).toHaveLength(1));
+  render().addToTrip(second);
+  await vi.waitFor(() => {
+    const state = render();
+    expect(state.query).toBe("Coffee + Second");
+    expect(state.chain).not.toBeNull();
+  });
+  const pinned = render().chain!.visits.find((v) => v.stop.label === "Second");
+  expect(pinned!.place.id).toBe("second");
 });
 
 it("clears partial Explore results when departure changes and ignores late routes", async () => {

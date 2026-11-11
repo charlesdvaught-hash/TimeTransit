@@ -196,6 +196,12 @@ h1 span {
 .blue {
   color: #409bff !important;
 }
+.use-location {
+  justify-content: flex-start;
+  font-size: 10px;
+  color: #70afff;
+  padding: 9px 2px 0;
+}
 .address-form {
   display: flex;
   margin: 6px 0 12px;
@@ -220,29 +226,6 @@ h1 span {
 }
 .address-option small {
   color: #99aabb;
-}
-.tabs {
-  display: flex;
-  border-bottom: 1px solid #ffffff10;
-  margin-bottom: 12px;
-  flex-shrink: 0;
-}
-.tabs button {
-  width: 50%;
-  padding: 12px 0;
-  color: #8394a8;
-  font-size: 11px;
-  border-bottom: 2px solid transparent;
-}
-.tabs .chosen {
-  border-color: #398eff;
-  color: #eaf4ff;
-}
-.tabs b {
-  background: #2c4e7a;
-  border-radius: 4px;
-  padding: 1px 4px;
-  font-size: 9px;
 }
 .departure {
   display: flex;
@@ -306,6 +289,29 @@ h1 span {
   color: #8bc0ff;
   background: #247ce528;
   border-color: #388eff77;
+}
+.trip-options {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 10px;
+  color: #a7b9ce;
+  margin: 12px 0 4px;
+}
+.trip-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.trip-options .return {
+  margin: 0;
+}
+.trip-options input[type="number"] {
+  width: 40px;
+  font-size: 10px;
+  color: #eaf4ff;
+  border-bottom: 1px solid #3a6b9f;
+  text-align: center;
 }
 .results-heading {
   font-size: 8px;
@@ -711,58 +717,6 @@ footer .live-dot {
   font-size: 9px;
   color: #829ab4;
 }
-.trip-builder > h3 {
-  font-size: 16px;
-  margin: 7px 0 8px;
-}
-.trip-builder > p {
-  font-size: 11px;
-  color: #8196af;
-  line-height: 1.8;
-}
-.stop {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  background: #ffffff04;
-  border: 1px solid #ffffff0d;
-  border-radius: 10px;
-  padding: 12px;
-  margin-top: 10px;
-}
-.stop-index {
-  color: #62a6ff;
-  font-size: 11px;
-  padding-top: 4px;
-}
-.stop > div {
-  flex: 1;
-  min-width: 0;
-}
-.stop label {
-  display: block;
-  font-size: 8px;
-  letter-spacing: 0.7px;
-  color: #6f87a2;
-}
-.stop input {
-  display: block;
-  width: 100%;
-  font-size: 12px;
-  padding: 6px 0 10px;
-}
-.stop label input {
-  display: inline;
-  width: 38px;
-  padding: 3px;
-  background: #253447;
-  border-radius: 4px;
-  font-size: 10px;
-  margin: 0 4px;
-}
-.stop button {
-  color: #6c829b;
-}
 .add-stop {
   width: 100%;
   border: 1px dashed #4e698755;
@@ -786,23 +740,6 @@ footer .live-dot {
 }
 .return input {
   accent-color: #388eff;
-}
-.primary {
-  width: 100%;
-  padding: 13px;
-  background: #3189ff;
-  border-radius: 9px;
-  font-weight: 500;
-  font-size: 11px;
-}
-.primary svg:last-child {
-  margin-left: auto;
-}
-.trip-builder .fine {
-  font-size: 9px;
-  color: #58718d;
-  line-height: 1.8;
-  margin-bottom: 22px;
 }
 .timeline > div {
   border-left: 1px solid #3a6b9f;
@@ -871,6 +808,11 @@ footer .live-dot {
   font-size: 8px;
   color: #617e9f;
 }
+.leg .live-departure {
+  display: block;
+  margin-top: 4px;
+  color: #6fd3a7;
+}
 .notice {
   font-size: 10px;
   color: #70afff;
@@ -936,12 +878,6 @@ button:hover {
   }
   .address-form {
     margin-bottom: 0;
-  }
-  .tabs {
-    margin-bottom: 8px;
-  }
-  .tabs button {
-    padding: 9px;
   }
   .categories {
     margin: 10px 0;

@@ -15,9 +15,19 @@ npx vitest run
 
 Opt-in real API check: `LIVE=1 npx vitest run src/live.test.ts` (Git Bash; use npx.cmd here).
 
+### Installable app (PWA)
+
+`npm run build` produces an installable PWA in `dist/` — manifest, icons, and a service worker are generated automatically. Serve `dist/` from any HTTPS host (Vercel, Netlify, GitHub Pages…), open it in Chrome on Android, and use "Add to Home Screen" / "Install app" for a standalone launcher. The service worker precaches the app shell, caches basemap tiles and fonts long-term, and keeps transit/search data network-first with a 24 h fallback — so the map and app chrome still load offline, but journeys always prefer live data. Dev mode is unaffected.
+
+### Optional: Transit API key
+
+Live departure estimates on selected journeys use the [Transit API](https://api-doc.transitapp.com/) when a key is present. Put `VITE_TRANSIT_API_KEY=...` in `.env.local` (gitignored) and restart `npm run dev`. The dev server relays `/transit/*` requests to `external.transitapp.com` and stamps the key server-side, so it never reaches the browser bundle — this also works around the API's lack of CORS headers. Without a key, or if the key is rejected, journeys work as before with schedule-only times. Each selection of a journey costs roughly one request per transit leg (stop lookup + departures), so free-tier quotas can be exhausted with heavy clicking.
+
+**Outside dev** (the installed PWA), there is no dev proxy — point the app at a relay via `VITE_TRANSIT_RELAY` in `.env.local` at build time (e.g. `VITE_TRANSIT_RELAY=https://transit-relay.you.workers.dev`). A ready-made relay lives in `worker/transit-relay.js`: on Cloudflare's free plan (100k requests/day, no card), Workers & Pages → Create Worker → paste the file → Deploy, then set two variables under Settings → Variables: `TRANSIT_API_KEY` (type: secret) and `ALLOWED_ORIGINS` (comma-separated origins allowed to call it — your app's HTTPS origin and `http://localhost:5173`). Only listed origins get a usable CORS answer, so a stranger finding the URL can't drain your key from a browser. CLI alternative: `npx wrangler deploy` from `worker/` after `wrangler secret put TRANSIT_API_KEY`.
+
 ## Explore
 
-Allow location access, search an origin address, or use the pin button then click the map. Chicago is the fallback. Choose a category or business name and optionally a departure date/time. Candidates are restricted to approximately 20 km, deduplicated, distance-prefiltered, and capped at 20. Each result uses the fastest Transitous itinerary including direct walking. Times include walking, waiting, rides, and transfers; arrival times use your browser timezone. Select a result for its colored route and expandable leg details. Route geometry respects MOTIS's encoded-polyline precision field (6 for the v2 plans used here).
+Allow location access, search an origin address, or use the pin button then click the map. Location can be granted from the browser prompt on first visit, the "Use my location" action under the origin card, or the crosshair control on the map's top-right; denial explains how to re-enable it in site settings. Chicago is the fallback. Choose a category or business name and optionally a departure date/time. Free-text searches fuzzy-match against category synonyms (so "groery store" or "urgent care" resolve to OSM tags like `shop:supermarket`) and merge tag-filtered results with name matches — places like Walmart surface even though their names never say "grocery". Candidates are restricted to approximately 20 km, deduplicated, distance-prefiltered, and capped at 20. Each result uses the fastest Transitous itinerary including direct walking. Times include walking, waiting, rides, and transfers; arrival times use your browser timezone. Select a result for its colored route and expandable leg details. Route geometry respects MOTIS's encoded-polyline precision field (6 for the v2 plans used here).
 
 ## Walking preferences and origin
 
@@ -37,7 +47,19 @@ Observations, preferences and last origin stay in this browser’s localStorage;
 
 ## Multi-stop optimizer
 
-Add 2–4 specific results or arbitrary “any matching place” search terms (including category names). Set each dwell duration (default 15 minutes) and optional return to start. For any-stop searches, distance-prefilter six candidates then retain the best three by real time from origin. The pure optimizer enumerates all stop orders and candidate choices; scores these cheaply using haversine distance and effective transit speed calibrated from already-loaded results (18 km/h fallback); verifies at most five estimated-best combinations sequentially with actual plans. Each leg departs at the previous actual arrival plus dwell, including dwell at the last stop. The winning complete trip is selected by elapsed duration including dwell and return. This is a bounded heuristic, not an exhaustive guarantee of a global optimum. Failed complete combinations are skipped; if none work the API error is shown. Unit tests cover normal, empty, error, geometry, ranking, walking and chained-time behavior.
+Separate destinations with `+` in the one search box — e.g. `coffee + pharmacy + home depot` — to plan a multi-stop trip (2–4 stops). Any term can be a category-like phrase or a place name; “Add to trip” on a result appends its name and pins that exact place. A shared stay duration (default 15 minutes) and optional round trip appear when the box holds multiple destinations. For free-text stops, distance-prefilter six candidates then retain the best three by real time from origin. The pure optimizer enumerates all stop orders and candidate choices; scores these cheaply using haversine distance and effective transit speed calibrated from already-loaded results (18 km/h fallback); verifies at most five estimated-best combinations sequentially with actual plans. Each leg departs at the previous actual arrival plus dwell, including dwell at the last stop. The winning complete trip is selected by elapsed duration including dwell and return. This is a bounded heuristic, not an exhaustive guarantee of a global optimum. Failed complete combinations are skipped; if none work the API error is shown. Unit tests cover normal, empty, error, geometry, ranking, walking and chained-time behavior.
+
+## Code layout
+
+- `src/api.ts` — Transitous/MOTIS journey planning + Photon geocoding; shared 3-way concurrency queue, session cache, abort handling.
+- `src/transit.ts` — Transit app API client (live departures): boarding-stop lookup, route/headsign/schedule matching, relay-aware (`VITE_TRANSIT_RELAY` or `/transit` dev proxy), self-disabling when the key/relay is absent.
+- `src/core.ts` — pure logic only: distance, ranking, polyline decode, category chips, fuzzy category matcher (synonyms + edit distance + stopwords), multi-stop optimizer.
+- `src/useTimeTransit.ts` — the controller: all app state, explore vs `+`-separated multi-stop runs, live-departure enrichment, pinned places.
+- `src/reliability*.ts`, `src/storage.ts` — observation model, dedupe, weighted statistics, localStorage persistence.
+- `src/boarding.ts`, `src/useTripTracking.ts`, `src/TripTracker.tsx` — opt-in GPS boarding detector + simulation lab.
+- `src/Panel.tsx`, `src/ResultsList.tsx`, `src/MapLayer.tsx`, `src/Hud.tsx` — UI shell, unified search/results/timeline, map, journey HUD.
+- `worker/transit-relay.js` — Cloudflare Worker relay for the Transit key outside dev.
+- `vite.config.ts` — dev proxy for the Transit key + PWA plugin (manifest, service worker).
 
 ## Public services & limitations
 

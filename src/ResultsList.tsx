@@ -18,13 +18,21 @@ export function ResultsList({ controller }: { controller: TransitController }) {
     selected,
     setSelected,
     exploreBusy: busy,
+    tripBusy,
     progress,
-    stops,
     chain,
     setChain,
+    back,
+    setBack,
+    dwell,
+    setDwell,
     run,
-    addStop,
+    addToTrip,
   } = controller;
+  const destinations = query
+    .split("+")
+    .map((s) => s.trim())
+    .filter(Boolean).length;
   return (
     <>
       <form
@@ -37,7 +45,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
         <Search size={19} />
         <input
           aria-label="Search destinations"
-          placeholder="Where do you want to go?"
+          placeholder="Where to? Separate stops with +"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -56,18 +64,45 @@ export function ResultsList({ controller }: { controller: TransitController }) {
           </button>
         ))}
       </div>
+      {destinations >= 2 && (
+        <div className="trip-options">
+          <label className="return">
+            <input
+              aria-label="Return to start"
+              type="checkbox"
+              checked={back}
+              onChange={(e) => setBack(e.target.checked)}
+            />
+            Round trip
+          </label>
+          <label>
+            Stay{" "}
+            <input
+              aria-label="Stay minutes at each stop"
+              type="number"
+              min="0"
+              max="240"
+              value={dwell}
+              onChange={(e) => setDwell(Number(e.target.value))}
+            />{" "}
+            min each
+          </label>
+        </div>
+      )}
       <div className="results-heading">
         <span>
-          {busy
-            ? "FINDING YOUR FASTEST WAY"
-            : results.length
-              ? `${results.length} PLACES · FASTEST FIRST`
-              : "DISCOVER YOUR NEIGHBORHOOD"}
+          {tripBusy
+            ? "COMPARING REAL JOURNEYS…"
+            : busy
+              ? "FINDING YOUR FASTEST WAY"
+              : chain
+                ? "SMARTEST ORDER"
+                : results.length
+                  ? `${results.length} PLACES · FASTEST FIRST`
+                  : "DISCOVER YOUR NEIGHBORHOOD"}
         </span>
-        {busy ? (
-          <span>
-            {progress[0]}/{progress[1] || "…"}
-          </span>
+        {busy || tripBusy ? (
+          <span>{tripBusy ? "…" : `${progress[0]}/${progress[1] || "…"}`}</span>
         ) : (
           <Zap size={14} />
         )}
@@ -79,6 +114,32 @@ export function ResultsList({ controller }: { controller: TransitController }) {
               width: `${progress[1] ? (progress[0] / progress[1]) * 100 : 10}%`,
             }}
           />
+        </div>
+      )}
+      {chain && (
+        <div className="timeline">
+          {chain.visits.map((v, i) => (
+            <div key={v.stop.id}>
+              <small>
+                {time(v.trip.endTime)} · STOP {i + 1}
+              </small>
+              <h3>{v.place.name}</h3>
+              <p>
+                {minutes(v.trip.duration)} min travel · {v.stop.dwell} min stay
+              </p>
+              <RouteChips trip={v.trip} preferences={controller.preferences} />
+            </div>
+          ))}
+          {chain.returnTrip && (
+            <div>
+              <small>{time(chain.returnTrip.endTime)}</small>
+              <h3>Back at your start</h3>
+              <RouteChips
+                trip={chain.returnTrip}
+                preferences={controller.preferences}
+              />
+            </div>
+          )}
         </div>
       )}
       <div className="results">
@@ -120,14 +181,15 @@ export function ResultsList({ controller }: { controller: TransitController }) {
             </button>
             <button
               className="add-place"
-              onClick={() => addStop(r.place)}
-              disabled={stops.length >= 4}
+              title="Add as another stop"
+              onClick={() => addToTrip(r.place)}
+              disabled={destinations >= 4}
             >
               <Plus size={12} /> Add to trip
             </button>
           </div>
         ))}
-        {!results.length && !busy && (
+        {!results.length && !busy && !tripBusy && !chain && (
           <div className="empty">
             <div className="empty-icon">
               <Layers size={26} />
@@ -138,7 +200,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
             <p>
               {query
                 ? "Try another category or search term."
-                : "Choose a category or search a place. We’ll find what’s actually quickest to reach."}
+                : "Choose a category or search a place. Separate stops with + for a multi-stop trip — we’ll find the smartest order."}
             </p>
             <div className="empty-facts">
               <span>20 km search area</span>
