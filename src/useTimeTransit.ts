@@ -15,6 +15,9 @@ import {
   type TripChain,
 } from "./core";
 import { search, plan, planOptions, nearby, reachable } from "./api";
+import { parseQuery, shouldParse, toTerm } from "./semantic"; // STAGE-1
+import { nameScore } from "./suggestions"; // STAGE-1
+import type { SemanticParseResult } from "./contracts"; // STAGE-1
 import { inCoverage, scan } from "./scan";
 import { loadScanIndex } from "./scanData";
 import { fetchTripDelays } from "./gtfsrt";
@@ -75,6 +78,7 @@ export function useTimeTransit() {
     [now, setNow] = useState(new Date()),
     [originSearch, setOriginSearch] = useState(""),
     [originOptions, setOriginOptions] = useState<Place[]>([]),
+    [interpreted, setInterpreted] = useState<string | null>(null), // STAGE-1
     [locating, setLocating] = useState(false),
     [liveDepartures, setLiveDepartures] = useState<
       Record<number, LiveDeparture>
@@ -284,8 +288,40 @@ export function useTimeTransit() {
       });
     return () => c.abort();
   }, [selected]);
-  async function run(term: string, pins = pinned) {
+  // STAGE-1: pin parsed anchors to strong local name matches so the
+  // optimizer can't drift to a different venue with a similar name
+  async function anchorPins(
+    result: SemanticParseResult,
+    pins: Record<string, Place>,
+  ) {
+    await loadPlaces();
+    const next = { ...pins };
+    for (const anchor of result.high_priority_anchors) {
+      const hit = searchPlaces(anchor.normalized_entity_name, origin).find(
+        (p) => nameScore(anchor.normalized_entity_name, p.name) >= 500,
+      );
+      if (hit) next[anchor.normalized_entity_name.toLowerCase()] = hit;
+    }
+    return next;
+  }
+  async function run(term: string, pins = pinned, depth = 0) {
     if (!term.trim()) return;
+    // STAGE-1: offer free-form sentences to the semantic parser once per run
+    if (!depth) {
+      if (shouldParse(term, preferences.aiMode)) {
+        const parsed = await parseQuery(term);
+        if (parsed) {
+          const next = toTerm(parsed);
+          const found = await anchorPins(parsed, pins);
+          if (next !== term.trim()) {
+            setInterpreted(next);
+            return run(next, found, 1);
+          }
+          pins = found;
+        }
+      }
+      setInterpreted(null);
+    }
     const segments = term
       .split("+")
       .map((s) => s.trim())
@@ -621,6 +657,8 @@ export function useTimeTransit() {
     run,
     addToTrip,
     pinPlace,
+    interpreted,
+    setInterpreted,
     reroute,
     total,
     hover,
