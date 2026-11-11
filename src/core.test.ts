@@ -3,12 +3,15 @@ import {
   chicago,
   distance,
   fastest,
+  itineraries,
+  suggestCategories,
   rank,
   decode,
   combinations,
   optimize,
   editDistance,
   matchCategory,
+  rankByReachability,
   type Place,
   type Itinerary,
   type Stop,
@@ -29,6 +32,14 @@ const itinerary = (
   transfers: 0,
   legs: [],
 });
+describe("category suggestions", () => {
+  it("maps typed fragments to place types", () => {
+    expect(suggestCategories("cof")).toContain("Coffee");
+    expect(suggestCategories("groceries")).toContain("Grocery");
+    expect(suggestCategories("urgent")).toContain("Hospital/Clinic");
+    expect(suggestCategories("zzz")).toEqual([]);
+  });
+});
 describe("routing primitives", () => {
   it("measures kilometers and zero distance", () => {
     expect(distance(chicago, chicago)).toBe(0);
@@ -41,6 +52,12 @@ describe("routing primitives", () => {
     ).toBe(400));
   it("reports missing routes", () =>
     expect(() => fastest({})).toThrow("No route"));
+  it("keeps alternatives sorted by time", () =>
+    expect(
+      itineraries({ itineraries: [itinerary(900), itinerary(400)] }).map(
+        (t) => t.duration,
+      ),
+    ).toEqual([400, 900]));
   it("includes initial waiting from the requested departure", () => {
     const departure = new Date("2026-11-09T15:00:00Z");
     const transit = itinerary(300, new Date(+departure + 900000));
@@ -254,4 +271,21 @@ describe("trip optimizer", () => {
     );
     expect(result.duration).toBe(1320);
   });
+});
+it("prefers a farther place served by a reachable stop over a nearer unserved one", () => {
+  const near = {
+    ...chicago,
+    id: "near",
+    name: "Near",
+    lat: chicago.lat + 0.02,
+  };
+  const far = { ...chicago, id: "far", name: "Far", lat: chicago.lat + 0.05 };
+  const ranked = rankByReachability(
+    chicago,
+    [near, far],
+    [{ lat: far.lat, lon: far.lon, minutes: 8 }],
+    1.4,
+  );
+  expect(ranked.map((p) => p.id)).toEqual(["far", "near"]);
+  expect(rankByReachability(chicago, [near, far], [], 1.4)[0].id).toBe("near");
 });

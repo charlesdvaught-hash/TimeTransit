@@ -1,6 +1,13 @@
+import { Crosshair, Minus, MoonStar, Plus, Satellite } from "lucide-react";
 import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  basemapStyles,
+  loadBasemap,
+  saveBasemap,
+  type Basemap,
+} from "./basemap";
 import { decode } from "./core";
 import { hasSavedOrigin } from "./preferences";
 import type { TransitController } from "./useTimeTransit";
@@ -10,6 +17,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     origin,
     results,
     selected,
+    trip,
     setSelected,
     setError,
     picking,
@@ -21,40 +29,19 @@ export function MapLayer({ controller }: { controller: TransitController }) {
   } = controller;
   const mapNode = useRef<HTMLDivElement>(null);
   const pickRef = useRef(picking);
+  const styled = useRef(false);
+  const [basemap, setBasemap] = useState<Basemap>(loadBasemap);
   pickRef.current = picking;
   useEffect(() => {
     const m = new maplibregl.Map({
       container: mapNode.current!,
-      style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+      style: basemapStyles[basemap],
       center: [origin.lon, origin.lat],
       zoom: 12.8,
       pitch: 20,
       attributionControl: { compact: true },
     });
     map.current = m;
-    m.addControl(
-      new maplibregl.NavigationControl({ showCompass: false }),
-      "top-right",
-    );
-    const geolocate = new maplibregl.GeolocateControl({
-      positionOptions: { enableHighAccuracy: true, timeout: 15000 },
-      trackUserLocation: false,
-      showUserLocation: true,
-    });
-    geolocate.on("geolocate", (e) =>
-      changeOrigin({
-        id: "gps",
-        name: "Your location",
-        lat: e.coords.latitude,
-        lon: e.coords.longitude,
-      }),
-    );
-    geolocate.on("error", (e) =>
-      setError(
-        `Location: ${e.message || "permission denied or position unavailable"}`,
-      ),
-    );
-    m.addControl(geolocate, "top-right");
     m.on("click", (e) => {
       if (pickRef.current)
         changeOrigin({
@@ -70,21 +57,63 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     if (!hasSavedOrigin()) locate();
     return () => m.remove();
   }, []);
+  useEffect(() => {
+    map.current
+      ?.getContainer()
+      .classList.toggle("satellite", basemap === "satellite");
+    if (!styled.current) {
+      styled.current = true;
+      return;
+    }
+    map.current?.setStyle(basemapStyles[basemap]);
+  }, [basemap]);
   const trips = chain
     ? [
         ...chain.visits.map((v) => v.trip),
         ...(chain.returnTrip ? [chain.returnTrip] : []),
       ]
-    : selected
-      ? [selected.trip]
+    : trip
+      ? [trip]
       : [];
   useEffect(() => {
     const m = map.current;
     if (!m) return;
     const markers: maplibregl.Marker[] = [];
+    const seen = new Set<string>();
+    const corridors = (chain ? trips : results.map((r) => r.trip))
+      .flatMap((t) => t.legs)
+      .filter((l) => l.mode !== "WALK" && l.legGeometry)
+      .flatMap((l) => {
+        const key = `${l.mode}|${l.routeShortName}|${l.legGeometry!.points}`;
+        if (seen.has(key)) return [];
+        seen.add(key);
+        return [
+          {
+            type: "Feature" as const,
+            properties: {
+              color: `#${(l.routeColor || "4d9eff").replace("#", "")}`,
+            },
+            geometry: {
+              type: "LineString" as const,
+              coordinates: decode(
+                l.legGeometry!.points,
+                l.legGeometry!.precision,
+              ),
+            },
+          },
+        ];
+      });
     const draw = () => {
-      for (const id of ["route-walk", "route-ride"])
+      for (const id of [
+        "network-glow",
+        "network-core",
+        "route-casing",
+        "route-casing-walk",
+        "route-ride",
+        "route-walk",
+      ])
         if (m.getLayer(id)) m.removeLayer(id);
+      if (m.getSource("network")) m.removeSource("network");
       if (m.getSource("route")) m.removeSource("route");
       const features = trips.flatMap((t) =>
         t.legs.map((l) => ({
@@ -93,7 +122,9 @@ export function MapLayer({ controller }: { controller: TransitController }) {
             walk: l.mode === "WALK",
             color:
               l.mode === "WALK"
-                ? "#a8c7da"
+                ? basemap === "satellite"
+                  ? "#e8f4ff"
+                  : "#a8c7da"
                 : `#${(l.routeColor || "339aff").replace("#", "")}`,
           },
           geometry: {
@@ -107,15 +138,69 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           },
         })),
       );
+      if (corridors.length) {
+        m.addSource("network", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: corridors },
+        });
+        m.addLayer({
+          id: "network-glow",
+          type: "line",
+          source: "network",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": 8,
+            "line-blur": 6,
+            "line-opacity": 0.22,
+          },
+        });
+        m.addLayer({
+          id: "network-core",
+          type: "line",
+          source: "network",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": 2,
+            "line-opacity": 0.5,
+          },
+        });
+      }
       m.addSource("route", {
         type: "geojson",
         data: { type: "FeatureCollection", features },
+      });
+      m.addLayer({
+        id: "route-casing",
+        type: "line",
+        source: "route",
+        filter: ["==", "walk", false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#04101c",
+          "line-width": 9,
+          "line-opacity": 0.5,
+        },
+      });
+      m.addLayer({
+        id: "route-casing-walk",
+        type: "line",
+        source: "route",
+        filter: ["==", "walk", true],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#04101c",
+          "line-width": 6,
+          "line-opacity": 0.35,
+        },
       });
       m.addLayer({
         id: "route-ride",
         type: "line",
         source: "route",
         filter: ["==", "walk", false],
+        layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": ["get", "color"],
           "line-width": 5,
@@ -149,7 +234,30 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       }
     };
     if (m.isStyleLoaded()) draw();
-    else m.once("load", draw);
+    m.on("style.load", draw);
+    let frame = 0;
+    if (
+      corridors.length &&
+      !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ) {
+      let last = 0;
+      const pulse = (now: number) => {
+        if (now - last > 45) {
+          last = now;
+          if (m.getLayer("network-glow")) {
+            const amount = 0.5 + 0.5 * Math.sin(now / 900);
+            m.setPaintProperty(
+              "network-glow",
+              "line-opacity",
+              0.1 + 0.16 * amount,
+            );
+            m.setPaintProperty("network-glow", "line-width", 7 + 4 * amount);
+          }
+        }
+        frame = requestAnimationFrame(pulse);
+      };
+      frame = requestAnimationFrame(pulse);
+    }
     const dot = document.createElement("div");
     dot.className = "origin-dot";
     markers.push(
@@ -167,6 +275,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
         (chain ? " trip-pin" : selected?.place.id === p.id ? " active" : "");
       el.textContent = String(i + 1);
       el.title = p.name;
+      el.setAttribute("aria-label", `${i + 1}. ${p.name}`);
       if (!chain)
         el.onclick = () => {
           const r = results.find((r) => r.place.id === p.id);
@@ -182,10 +291,57 @@ export function MapLayer({ controller }: { controller: TransitController }) {
       );
     });
     return () => {
-      m.off("load", draw);
+      m.off("style.load", draw);
+      cancelAnimationFrame(frame);
       markers.forEach((x) => x.remove());
     };
-  }, [origin, results, selected, chain]);
-
-  return <div ref={mapNode} className="map" />;
+  }, [origin, results, selected, trip, chain, basemap]);
+  const choose = (b: Basemap) => {
+    setBasemap(b);
+    saveBasemap(b);
+  };
+  return (
+    <>
+      <div ref={mapNode} className="map" />
+      <div className="basemap-switch" role="group" aria-label="Basemap">
+        <button
+          className={basemap === "dark" ? "active" : ""}
+          aria-pressed={basemap === "dark"}
+          onClick={() => choose("dark")}
+        >
+          <MoonStar size={13} /> Dark
+        </button>
+        <button
+          className={basemap === "satellite" ? "active" : ""}
+          aria-pressed={basemap === "satellite"}
+          onClick={() => choose("satellite")}
+        >
+          <Satellite size={13} /> Satellite
+        </button>
+      </div>
+      <div className="map-controls">
+        <button
+          title="Zoom in"
+          aria-label="Zoom in"
+          onClick={() => map.current?.zoomIn()}
+        >
+          <Plus size={16} />
+        </button>
+        <button
+          title="Zoom out"
+          aria-label="Zoom out"
+          onClick={() => map.current?.zoomOut()}
+        >
+          <Minus size={16} />
+        </button>
+        <button
+          title="Use my location"
+          aria-label="Use my location"
+          onClick={locate}
+        >
+          <Crosshair size={16} />
+        </button>
+      </div>
+    </>
+  );
 }

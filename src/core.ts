@@ -1,3 +1,4 @@
+import { arrivalAtPoint, scan, type ScanIndex } from "./scan";
 export type Place = {
   id: string;
   name: string;
@@ -37,6 +38,7 @@ export type Itinerary = {
 export type Result = {
   place: Place;
   trip: Itinerary;
+  alternatives?: Itinerary[];
   distance: number;
   distanceRank: number;
 };
@@ -167,6 +169,22 @@ export function matchCategory(query: string): string[] {
   }
   return [...tags];
 }
+export function suggestCategories(query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const tags = new Set<string>();
+  for (const [word, tag] of Object.entries(synonyms))
+    if (word.startsWith(q) || q.startsWith(word))
+      (Array.isArray(tag) ? tag : [tag]).forEach((t) => tags.add(t));
+  return Object.keys(categories).filter((label) => {
+    const name = label.toLowerCase();
+    return (
+      name.includes(q) ||
+      tags.has(categories[label]) ||
+      [...tags].some((t) => name.includes(t.split(":")[1]?.replace(/_/g, " ")))
+    );
+  });
+}
 export function distance(
   a: Pick<Place, "lat" | "lon">,
   b: Pick<Place, "lat" | "lon">,
@@ -185,11 +203,11 @@ export function distance(
     )
   );
 }
-export function fastest(
+export function itineraries(
   data: { itineraries?: Itinerary[]; direct?: Itinerary[] },
   departure?: Date,
 ) {
-  const all = [...(data.itineraries || []), ...(data.direct || [])]
+  return [...(data.itineraries || []), ...(data.direct || [])]
     .filter((x) => Number.isFinite(x.duration))
     .map((x) =>
       departure
@@ -201,12 +219,44 @@ export function fastest(
             ),
           }
         : x,
-    );
+    )
+    .sort((a, b) => a.duration - b.duration);
+}
+export function fastest(
+  data: { itineraries?: Itinerary[]; direct?: Itinerary[] },
+  departure?: Date,
+) {
+  const all = itineraries(data, departure);
   if (!all.length) throw new Error("No route available for this destination.");
-  return all.sort((a, b) => a.duration - b.duration)[0];
+  return all[0];
 }
 export function rank(results: Result[]) {
   return [...results].sort((a, b) => a.trip.duration - b.trip.duration);
+}
+export type ReachableStop = { lat: number; lon: number; minutes: number };
+export function rankByReachability(
+  origin: Place,
+  places: Place[],
+  stops: ReachableStop[],
+  walkingSpeed: number,
+) {
+  const estimate = (p: Place) => {
+    let best = Infinity;
+    for (const s of stops) {
+      const km = distance(p, s);
+      if (km <= 1.5)
+        best = Math.min(best, s.minutes + (km * 1000) / walkingSpeed / 60);
+    }
+    return Number.isFinite(best)
+      ? best
+      : (distance(origin, p) * 1000) / walkingSpeed / 60;
+  };
+  const scores = new Map(places.map((p) => [p.id, estimate(p)]));
+  return [...places].sort(
+    (a, b) =>
+      scores.get(a.id)! - scores.get(b.id)! ||
+      distance(origin, a) - distance(origin, b),
+  );
 }
 export function decode(points: string, precision = 5): [number, number][] {
   let i = 0,
@@ -231,12 +281,35 @@ export function decode(points: string, precision = 5): [number, number][] {
   }
   return out;
 }
+export type Pin = "first" | "middle" | "last";
 export type Stop = {
   id: string;
   label: string;
   candidates: Place[];
   dwell: number;
+  pin?: Pin;
 };
+export function pinError(stops: { pin?: Pin }[]) {
+  const n = stops.length;
+  if (stops.filter((s) => s.pin === "first").length > 1)
+    return "Only one stop can be pinned first.";
+  if (stops.filter((s) => s.pin === "last").length > 1)
+    return "Only one stop can be pinned last.";
+  if (stops.every((s) => s.pin === "middle"))
+    return "Middle pins need at least one unpinned stop to lead or end the trip.";
+  if (stops.some((s) => s.pin === "middle") && n < 3)
+    return "A middle stop needs at least 3 destinations.";
+}
+// position (0..n-1) a pinned stop may occupy in an ordering of n stops
+export function pinAllows(pin: Pin | undefined, pos: number, n: number) {
+  if (pin === "first") return pos === 0;
+  if (pin === "last") return pos === n - 1;
+  if (pin === "middle") return pos > 0 && pos < n - 1;
+  return true;
+}
+export function pinsHold(combo: { stop: Stop }[], n: number) {
+  return combo.every((v, i) => pinAllows(v.stop.pin, i, n));
+}
 export type TripChain = {
   visits: { stop: Stop; place: Place; trip: Itinerary }[];
   returnTrip?: Itinerary;
@@ -270,6 +343,97 @@ export function combinations(
       ),
   );
 }
+// Beam search: rank stop orders by real route-pattern arrival times from the
+// scan. One scan per open state reaches every remaining candidate at once.
+export function scanOrder(
+  index: ScanIndex,
+  origin: Place,
+  stops: Stop[],
+  departMs: number,
+  opts: {
+    back?: boolean;
+    walkSpeed?: number;
+    maxWalkM?: number;
+    beam?: number;
+    tz?: string;
+    delays?: Map<string, Map<string, { d?: number; t?: number }>>;
+  } = {},
+): { combo: { stop: Stop; place: Place }[]; total: number }[] {
+  const n = stops.length;
+  type St = {
+    at: number;
+    combo: { stop: Stop; place: Place }[];
+    left: Stop[];
+    used: Set<string>;
+    from: { lat: number; lon: number };
+  };
+  const scanOpts = {
+    walkSpeed: opts.walkSpeed,
+    maxWalkM: opts.maxWalkM,
+    tz: opts.tz,
+    delays: opts.delays,
+  };
+  const expand = (st: St, level: number) => {
+    const r = scan(index, st.from, st.at, scanOpts);
+    const out: St[] = [];
+    for (const s of st.left) {
+      if (!pinAllows(s.pin, level, n)) continue;
+      for (const place of s.candidates.slice(0, 3)) {
+        if (st.used.has(place.id)) continue;
+        if (
+          st.left.some(
+            (o) =>
+              o !== s &&
+              o.candidates.length === 1 &&
+              o.candidates[0].id === place.id,
+          )
+        )
+          continue;
+        const at = arrivalAtPoint(
+          index,
+          r,
+          place,
+          opts.walkSpeed,
+          opts.maxWalkM,
+        );
+        if (at === undefined) continue;
+        out.push({
+          at: at + s.dwell * 60000,
+          combo: [...st.combo, { stop: s, place }],
+          left: st.left.filter((x) => x !== s),
+          used: new Set([...st.used, place.id]),
+          from: place,
+        });
+      }
+    }
+    return out;
+  };
+  let states: St[] = [
+    { at: departMs, combo: [], left: stops, used: new Set(), from: origin },
+  ];
+  for (let level = 0; level < n && states.length; level++) {
+    states = states
+      .flatMap((st) => expand(st, level))
+      .sort((a, b) => a.at - b.at)
+      .slice(0, opts.beam ?? 10);
+  }
+  const seen = new Set<string>();
+  return states
+    .flatMap((st) => {
+      let end = st.at;
+      if (opts.back) {
+        const r = scan(index, st.from, st.at, scanOpts);
+        end =
+          arrivalAtPoint(index, r, origin, opts.walkSpeed, opts.maxWalkM) ??
+          Infinity;
+      }
+      const key = st.combo.map((v) => `${v.stop.id}:${v.place.id}`).join("|");
+      if (seen.has(key) || !Number.isFinite(end)) return [];
+      seen.add(key);
+      return [{ combo: st.combo, total: (end - departMs) / 1000 }];
+    })
+    .sort((a, b) => a.total - b.total);
+}
 export async function optimize(
   origin: Place,
   stops: Stop[],
@@ -277,6 +441,7 @@ export async function optimize(
   back: boolean,
   plan: (a: Place, b: Place, t: Date) => Promise<Itinerary>,
   speed = 18,
+  order?: { combo: { stop: Stop; place: Place }[]; total: number }[],
 ): Promise<TripChain> {
   if (
     stops.length < 2 ||
@@ -284,6 +449,8 @@ export async function optimize(
     stops.some((s) => !s.candidates.length)
   )
     throw new Error("Choose 2–4 stops with at least one candidate each.");
+  const pinErr = pinError(stops);
+  if (pinErr) throw new Error(pinErr);
   const estimate = (combo: ReturnType<typeof combinations>[number]) => {
     let p = origin,
       total = 0;
@@ -293,9 +460,12 @@ export async function optimize(
     }
     return total + (back ? (distance(p, origin) / speed) * 3600 : 0);
   };
-  const shortlist = combinations(stops)
-    .sort((a, b) => estimate(a) - estimate(b))
-    .slice(0, 5);
+  const pool = order?.length
+    ? order.map((o) => o.combo)
+    : combinations(stops)
+        .filter((c) => pinsHold(c, stops.length))
+        .sort((a, b) => estimate(a) - estimate(b));
+  const shortlist = pool.slice(0, 5);
   if (!shortlist.length)
     throw new Error(
       "No trip with distinct places is available. Choose different stops or broaden your searches.",

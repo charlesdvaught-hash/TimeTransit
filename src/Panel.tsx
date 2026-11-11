@@ -20,31 +20,21 @@ export function Panel({ controller }: { controller: TransitController }) {
     setOriginSearch,
     originOptions,
     setOriginOptions,
+    trip,
     liveDepartures,
+    liveChoice,
     locating,
     changeOrigin,
     locate,
   } = controller;
   return (
     <aside className="panel">
-      <div className="panel-heading">
-        <div className="eyebrow">LESS COMMUTE. MORE CITY.</div>
-        <h1>
-          Closer is a matter
-          <br />
-          of <span>time.</span>
-        </h1>
-        <p>Your city, ranked by the journey. Not the radius.</p>
-      </div>
       <div className="origin-box">
         <span className="tiny-dot" />
         <div>
           <small>STARTING FROM</small>
           <strong>{origin.name}</strong>
         </div>
-        <button title="Use my location" onClick={locate} disabled={locating}>
-          <LocateFixed size={17} />
-        </button>
         <button
           className={picking ? "blue" : ""}
           title="Pick origin on map"
@@ -133,12 +123,24 @@ export function Panel({ controller }: { controller: TransitController }) {
           </button>
         </div>
       )}
-      {selected && !chain && (
+      {selected &&
+        trip &&
+        !chain &&
+        liveChoice &&
+        liveChoice.options.length > 1 && (
+          <p className="live-choice">
+            Live check: {liveChoice.options.length} routes ·{" "}
+            {liveChoice.trip === selected.trip
+              ? "scheduled fastest still best"
+              : "switched to the earliest live arrival"}
+          </p>
+        )}
+      {selected && trip && !chain && (
         <details className="directions">
           <summary>
-            Journey details <span>{transfers(selected.trip.transfers)}</span>
+            Journey details <span>{transfers(trip.transfers)}</span>
           </summary>
-          {selected.trip.legs.map((l, i) => (
+          {trip.legs.map((l, i) => (
             <div className="leg" key={i}>
               <span
                 style={{
@@ -176,7 +178,7 @@ export function Panel({ controller }: { controller: TransitController }) {
         </details>
       )}
       <footer>
-        <span className="live-dot" /> Powered by local transit · No car required
+        <span className="live-dot" /> Powered by local transit
       </footer>
     </aside>
   );

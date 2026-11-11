@@ -12,7 +12,7 @@ function App() {
   const { providers, now } = controller;
   return (
     <>
-      <MapLayer controller={controller} />{" "}
+      <MapLayer controller={controller} />
       <header>
         <a className="brand" href="#">
           <span className="brand-icon">
@@ -33,9 +33,6 @@ function App() {
         </div>
       </header>
       <Panel controller={controller} />
-      <div className="map-label">
-        <span className="live-dot" /> YOUR CITY. IN MINUTES.
-      </div>
       <Hud controller={controller} />
     </>
   );

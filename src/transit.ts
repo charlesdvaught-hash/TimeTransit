@@ -31,6 +31,7 @@ type MergedItinerary = {
   schedule_items: ScheduleItem[];
 };
 type RouteDeparture = {
+  global_stop_id?: string;
   route_short_name?: string;
   route_long_name?: string;
   route_display_short_name?: { elements?: (string | null)[] };
@@ -145,37 +146,65 @@ export function nearestStop(
     .filter((s) => s.meters <= maxMeters)
     .sort((a, b) => a.meters - b.meters)[0]?.stop;
 }
+export async function liveDepartures(
+  legs: Leg[],
+  signal?: AbortSignal,
+): Promise<(LiveDeparture | undefined)[]> {
+  const stops = await Promise.all(
+    legs.map((leg) =>
+      get(
+        `/v4/public/nearby_stops?lat=${leg.from.lat}&lon=${leg.from.lon}&max_distance=250`,
+        signal,
+      )
+        .then((s) => nearestStop(s.stops || [], leg.from))
+        .catch(() => undefined),
+    ),
+  );
+  const ids = [
+    ...new Set(
+      stops.filter((s): s is TransitStop => !!s).map((s) => s.global_stop_id),
+    ),
+  ].slice(0, 100);
+  if (!ids.length) return legs.map(() => undefined);
+  const at = Math.floor(
+    Math.min(
+      ...legs.map((leg) => Date.parse(leg.scheduledStartTime || leg.startTime)),
+    ) /
+      1000 -
+      180,
+  );
+  const departures = await get(
+    `/v4/public/stop_departures?global_stop_ids=${ids.map(encodeURIComponent).join(",")}&time=${at}&max_num_departures=10&merge_platform_stops=true`,
+    signal,
+  );
+  const rows = (departures.route_departures || []) as RouteDeparture[];
+  return legs.map((leg, i) => {
+    const stop = stops[i];
+    if (!stop) return;
+    const match = pickDeparture(
+      rows.filter((r) => r.global_stop_id === stop.global_stop_id),
+      leg,
+    );
+    if (!match) return;
+    const scheduled = match.item.scheduled_departure_time * 1000,
+      expected = match.item.departure_time * 1000;
+    return {
+      routeName:
+        match.route.route_short_name || match.route.route_long_name || leg.mode,
+      headsign: leg.headsign,
+      stopName: stop.stop_name,
+      network: match.route.route_network_name,
+      scheduledTime: new Date(scheduled).toISOString(),
+      expectedTime: new Date(expected).toISOString(),
+      delay: (expected - scheduled) / 1000,
+      realtime: !!match.item.is_real_time,
+      cancelled: !!match.item.is_cancelled,
+    };
+  });
+}
 export async function liveDeparture(
   leg: Leg,
   signal?: AbortSignal,
 ): Promise<LiveDeparture | undefined> {
-  const stops = await get(
-    `/v4/public/nearby_stops?lat=${leg.from.lat}&lon=${leg.from.lon}&max_distance=250`,
-    signal,
-  );
-  const stop = nearestStop(stops.stops || [], leg.from);
-  if (!stop) return;
-  const at = Math.floor(
-    Date.parse(leg.scheduledStartTime || leg.startTime) / 1000 - 180,
-  );
-  const departures = await get(
-    `/v4/public/stop_departures?global_stop_ids=${encodeURIComponent(stop.global_stop_id)}&time=${at}&max_num_departures=10&merge_platform_stops=true`,
-    signal,
-  );
-  const match = pickDeparture(departures.route_departures || [], leg);
-  if (!match) return;
-  const scheduled = match.item.scheduled_departure_time * 1000,
-    expected = match.item.departure_time * 1000;
-  return {
-    routeName:
-      match.route.route_short_name || match.route.route_long_name || leg.mode,
-    headsign: leg.headsign,
-    stopName: stop.stop_name,
-    network: match.route.route_network_name,
-    scheduledTime: new Date(scheduled).toISOString(),
-    expectedTime: new Date(expected).toISOString(),
-    delay: (expected - scheduled) / 1000,
-    realtime: !!match.item.is_real_time,
-    cancelled: !!match.item.is_cancelled,
-  };
+  return (await liveDepartures([leg], signal))[0];
 }

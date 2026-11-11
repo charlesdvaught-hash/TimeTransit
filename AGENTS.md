@@ -30,21 +30,29 @@ Verify any change with `npx.cmd tsc -b` + `npx.cmd vitest run` before calling it
   Stamped onto requests by the dev proxy; never reaches the bundle.
 - `VITE_TRANSIT_RELAY` — production relay URL (Cloudflare Worker). When set,
   the client calls it directly instead of `/transit`. Empty → `/transit` dev proxy.
+- `VITE_TOMTOM_API_KEY` — TomTom Search key for the automatic place fallback.
+  Client-visible by design; restrict it by domain whitelist (CORS) and the
+  Search product in the TomTom key settings. Absent → fallback silently off.
 
 ## Architecture
 
-| File | Role |
-| --- | --- |
-| `src/api.ts` | Transitous/MOTIS `v2/plan` + `v1/map/stops`, Photon geocoding. Module-level fetch queue (≤3 concurrent), URL-keyed session cache (500 cap), AbortSignal plumbing. |
-| `src/transit.ts` | Transit API client: `nearby_stops` → `stop_departures` → matched live ETA per leg. Pure matchers (`normalizeName`, `routeScore`, `pickDeparture`, `nearestStop`) are exported for tests. Disables itself for the session on 401/403/404 (no key/relay). |
-| `src/core.ts` | Pure logic only: `distance`, `fastest`, `rank`, `decode`, `combinations`, `optimize`; category chips + `matchCategory` fuzzy resolver (synonyms → OSM tags, stopword stripping, edit-distance tolerance by word length). |
-| `src/useTimeTransit.ts` | Controller hook. `run(term)` splits on `+`: 1 segment → explore stream; 2–4 → multi-stop optimizer (shared dwell, optional round trip, pinned places from "Add to trip"). Live-departure enrichment fires on `selected`. |
-| `src/reliability.ts` + `src/reliabilityStore.ts` | Observation model (`observation`, `observationId`, `mergeObservations`, weighted `statistics`), localStorage persistence (10k cap), GPS-vs-feed weighting, simulated-data quarantine. |
-| `src/boarding.ts`, `useTripTracking.ts`, `TripTracker.tsx` | Opt-in `watchPosition` boarding detector and `?simulate=1` lab. |
-| `src/Panel.tsx`, `ResultsList.tsx`, `MapLayer.tsx`, `Hud.tsx` | UI: panel/origin/departure, unified search box + `+` options row + chain timeline, MapLibre map + geolocate control, journey HUD. |
-| `src/display.ts`, `preferences.ts`, `storage.ts`, `tripCandidates.ts` | Small helpers: formatting, walk prefs/origin persistence, guarded storage, candidate resolution. |
-| `worker/transit-relay.js` | Cloudflare Worker: forwards GETs to `external.transitapp.com` with `apiKey` from env secret; origin-allowlisted CORS. |
-| `vite.config.ts` | Dev proxy `/transit` → Transit API (injects key server-side) + `vite-plugin-pwa` (manifest, generateSW, runtime caching). |
+| File                                                                  | Role                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/api.ts`                                                          | Transitous/MOTIS `v2/plan`, `v6/one-to-all` + `v1/map/stops`, Photon geocoding. Module-level fetch queue (≤3 concurrent), URL-keyed session cache (500 cap), AbortSignal plumbing.                                                                                                                                                                   |
+| `src/transit.ts`                                                      | Transit API client: `nearby_stops` → `stop_departures` → matched live ETA per leg. Pure matchers (`normalizeName`, `routeScore`, `pickDeparture`, `nearestStop`) are exported for tests. Disables itself for the session on 401/403/404 (no key/relay).                                                                                              |
+| `src/core.ts`                                                         | Pure logic only: `distance`, `fastest`, `itineraries`, `rank`, `decode`, `combinations`, `optimize`, `suggestCategories`; category chips + `matchCategory` fuzzy resolver (synonyms → OSM tags, stopword stripping, edit-distance tolerance by word length).                                                                                         |
+| `src/useTimeTransit.ts`                                               | Controller hook. `run(term)` splits on `+`: 1 segment → explore stream (candidates pre-ranked by one-to-all reachability); 2–4 → multi-stop optimizer (per-stop dwell, optional round trip, pinned places from "Add to trip"). On `selected`, compares up to two alternatives' first boarding legs live and picks the earliest adjusted arrival.     |
+| `src/reliability.ts` + `src/reliabilityStore.ts`                      | Observation model (`observation`, `observationId`, `mergeObservations`, weighted `statistics`), localStorage persistence (10k cap), GPS-vs-feed weighting, simulated-data quarantine.                                                                                                                                                                |
+| `src/boarding.ts`, `useTripTracking.ts`, `TripTracker.tsx`            | Opt-in `watchPosition` boarding detector and `?simulate=1` lab.                                                                                                                                                                                                                                                                                      |
+| `src/Panel.tsx`, `ResultsList.tsx`, `MapLayer.tsx`, `Hud.tsx`         | UI: panel/origin/departure, unified search box with type/place autocomplete, per-stop dwell slots, chain timeline, MapLibre map with dark/satellite basemaps and themed controls, journey HUD.                                                                                                                                                       |
+| `src/basemap.ts`                                                      | MapLibre styles for CARTO Dark Matter and Esri World Imagery (plus label overlay); persisted basemap choice.                                                                                                                                                                                                                                         |
+| `src/display.ts`, `preferences.ts`, `storage.ts`, `tripCandidates.ts` | Small helpers: formatting, walk prefs/origin persistence, guarded storage, candidate resolution.                                                                                                                                                                                                                                                     |
+| `src/tomtom.ts` + `src/suggestions.ts`                                | TomTom Search v2 fuzzy-search client (coordinates come back in the response, so no Details round-trip) and the shared suggestion type + name-relevance merge. Query is debounced 250 ms, min 3 chars, session-cached; disables on 401/403/429.                                                                                                       |
+| `src/scan.ts`, `src/scanData.ts`                                      | Pure RAPTOR-style scan over `public/scan/octa.json` (board → ride → transfer rounds, service calendars, overnight trips, GTFS-RT delay overlay); lazy loader. Ranks explore candidates and orders `+` trips inside OCTA coverage; MOTIS plans displayed journeys and covers everywhere else. Index is SW-cached StaleWhileRevalidate, not precached. |
+| `src/gtfsrt.ts`                                                       | Minimal GTFS-RT protobuf decoder → `trip_id → stop_id → {delay                                                                                                                                                                                                                                                                                       | time}`map consumed by`scan`when departing <~2 h out. Fetches`/gtfsrt/tripupdates`. |
+| `scripts/build-scan-index.mjs`                                        | Build-time GTFS→index preprocessor (patterns/trips/calendars/walk links).                                                                                                                                                                                                                                                                            |
+| `worker/transit-relay.js`                                             | Cloudflare Worker: `/v4/*` → `external.transitapp.com` with `apiKey` secret; `/gtfsrt/*` → `api.octa.net` keyless. Origin-allowlisted CORS.                                                                                                                                                                                                          |
+| `vite.config.ts`                                                      | Dev proxies `/transit` → Transit API (injects key) and `/gtfsrt` → OCTA GTFS-RT + `vite-plugin-pwa` (manifest, generateSW, runtime caching).                                                                                                                                                                                                         |
 
 ## Conventions
 
@@ -70,7 +78,42 @@ Verify any change with `npx.cmd tsc -b` + `npx.cmd vitest run` before calling it
   tag. This is why the fuzzy matcher exists — "Walmart" never contains "grocery".
 - MOTIS v2 plan geometry uses polyline precision 6 (v1's precision-7 is
   undefined beyond 107° longitude).
+- Esri World Imagery and World\_Boundaries\_and\_Places raster tiles are
+  key-free and CORS-enabled; they back the satellite basemap and require visible
+  attribution.
+- MOTIS `one-to-all` returns `duration` in minutes and takes `maxTravelTime` in
+  minutes. The experimental `map/routes` endpoint is far too heavy for viewport
+  fetching (~800 kB / 9 s at zoom 13), so corridor glow uses planned leg
+  geometry instead.
 - Cloudflare Workers free plan: 100k requests/day — far above this relay's load.
+- Transit API free tier: 5 calls/min. A live alternative comparison costs ~3
+  calls (two boarding-stop lookups + one batched stop_departures — a 20-stop
+  batch consumes 1 per-minute quota unit, verified by Remaining-Minute 5→4 in
+  one window), so it is capped at two alternatives and throttled to one
+  comparison per 60 s. No monthly-quota header exists; count locally.
+- `stop_departures` accepts comma-separated `global_stop_id`s (≤100 documented)
+  and a `time` UNIX param; ~2 h ahead returns schedule-only (`is_real_time:false`).
+- OCTA GTFS: `octa.net/current/google_transit.zip` ~4 MB — 5,269 stops, 56
+  routes, 7,243 trips, 453,744 stop_times; `shapes.txt` present, `frequencies.txt`
+  absent. Feed window ends 2027-02-13; regenerate `public/scan/octa.json` via
+  `scripts/build-scan-index.mjs`. Index ≈3.4 MB (5,269 stops / 146 patterns /
+  7,243 trips / 9,946 walk links).
+- OCTA GTFS-RT at `api.octa.net/GTFSRealTime/protoBuf/*.aspx` is keyless protobuf
+  (wrongly labeled text/html) with **no CORS** — relayed at `/gtfsrt/*` (dev
+  proxy + `worker/transit-relay.js`), decoded by `src/gtfsrt.ts`. Swiftly
+  mirrors need a key (401).
+- Scan-vs-MOTIS spot check (Nov 2026, Anaheim→Santa Ana): scan 66 min vs MOTIS
+  68 min — 1.4 min gap. Run `LIVE=1 npx vitest run src/spotcheck.test.ts`.
+- Transitous rejects the default Node fetch user-agent with 403 — set a
+  `User-Agent` header in any Node-side probing.
+- TomTom Search API legacy (v2) free tier is **2,500 requests/month**, no card
+  (Places Search API v3 is 10k Suggest + 5k Discover + 5k Details/month). The
+  older platform FAQ's "2,500 non-tile per day" is outdated — pricing page wins.
+- TomTom fuzzy search returns `results[].position.lat/lon` directly, so a
+  suggestion is already a pinnable place; TomTom places are keyed `tomtom-<id>`
+  and shown with “Places © TomTom”.
+- MOTIS plans transfers at every served stop, including stops at intersections;
+  the app never invents a transfer at an intersection without a stop.
 
 ## Transit API terms (transitapp.com/reports/API_terms.pdf — read before shipping)
 
@@ -103,12 +146,20 @@ Verify any change with `npx.cmd tsc -b` + `npx.cmd vitest run` before calling it
 ## Watch out
 
 - Transit free-key quota is 5 calls/min + 1,500 calls/month (see terms above);
-  each journey selection costs ~1–2 relay requests per transit leg.
-- Service worker caches app shell, basemap tiles, fonts; plan/search data is
-  NetworkFirst with 24 h fallback; Transit API responses are deliberately uncached.
+  each journey selection costs ~1–2 relay requests per transit leg, and the
+  alternative comparison is throttled to stay under the per-minute ceiling.
+- Each Explore search adds one MOTIS `one-to-all` request (cached per
+  origin + departure); it is bounded with a 2.5 s race and falls back to
+  distance order, so a slow reachability query never blocks results.
+- Service worker caches app shell, dark and satellite basemap tiles, fonts;
+  plan/search data is NetworkFirst with 24 h fallback; Transit API responses are
+  deliberately uncached.
 - Geolocation needs a secure context (HTTPS or localhost) — the installable PWA
   must be served over HTTPS.
 - `npm install` may warn about esbuild's postinstall under allow-scripts —
   harmless for local dev.
+- `runExplore` honours a pinned place for the exact searched text (that is how a
+  TomTom suggestion becomes a destination despite OSM having no such business);
+  without the pin it re-searches the term against Photon as before.
 - `MultiStopPlanner.tsx` was removed when `+` syntax replaced the tab UI; don't
   resurrect it — extend the single search box instead.

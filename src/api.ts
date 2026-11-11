@@ -2,9 +2,11 @@ import {
   categories,
   distance,
   fastest,
+  itineraries,
   matchCategory,
   type Place,
   type Itinerary,
+  type ReachableStop,
 } from "./core";
 import { defaults, walkParams, type Preferences } from "./preferences";
 import { logFeed } from "./reliabilityStore";
@@ -63,6 +65,39 @@ export function searchParams(
   else params.set("q", query);
   return params;
 }
+const toPlace = (f: any, fallback: string): Place => ({
+  id: `${f.properties.osm_type}${f.properties.osm_id}`,
+  name: f.properties.name || f.properties.street || fallback,
+  lon: f.geometry.coordinates[0],
+  lat: f.geometry.coordinates[1],
+  address: [f.properties.housenumber, f.properties.street, f.properties.city]
+    .filter(Boolean)
+    .join(" "),
+});
+export async function suggest(
+  query: string,
+  origin: Place,
+  signal?: AbortSignal,
+): Promise<Place[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const p = new URLSearchParams({
+    q,
+    lat: String(origin.lat),
+    lon: String(origin.lon),
+    limit: "6",
+  });
+  const data = await json(`https://photon.komoot.io/api/?${p}`, signal);
+  if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+  return (data.features || [])
+    .map((f: any) => toPlace(f, q))
+    .filter((p: Place) => distance(origin, p) <= 30)
+    .filter(
+      (p: Place, i: number, a: Place[]) =>
+        a.findIndex((x) => x.id === p.id) === i,
+    )
+    .slice(0, 6);
+}
 export async function search(
   query: string,
   origin: Place,
@@ -85,35 +120,23 @@ export async function search(
   if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
   return responses
     .flatMap((data: any) => data.features || [])
-    .map((f: any) => ({
-      id: `${f.properties.osm_type}${f.properties.osm_id}`,
-      name: f.properties.name || f.properties.street || query,
-      lon: f.geometry.coordinates[0],
-      lat: f.geometry.coordinates[1],
-      address: [
-        f.properties.housenumber,
-        f.properties.street,
-        f.properties.city,
-      ]
-        .filter(Boolean)
-        .join(" "),
-    }))
+    .map((f: any) => toPlace(f, query))
     .filter((p: Place) => distance(origin, p) <= 20)
     .sort((a: Place, b: Place) => distance(origin, a) - distance(origin, b))
     .filter(
       (p: Place, i: number, a: Place[]) =>
         a.findIndex((x) => x.id === p.id) === i,
     )
-    .slice(0, 20);
+    .slice(0, 50);
 }
-export async function plan(
+async function planData(
   a: Place,
   b: Place,
   time: Date,
   signal?: AbortSignal,
   preferences: Preferences = defaults,
   onAgencies?: (agencies: string[]) => void,
-): Promise<Itinerary> {
+) {
   const p = new URLSearchParams({
     fromPlace: `${a.lat},${a.lon}`,
     toPlace: `${b.lat},${b.lon}`,
@@ -135,7 +158,33 @@ export async function plan(
       ),
     ),
   ]);
-  return fastest(data, time);
+  return data;
+}
+export async function plan(
+  a: Place,
+  b: Place,
+  time: Date,
+  signal?: AbortSignal,
+  preferences: Preferences = defaults,
+  onAgencies?: (agencies: string[]) => void,
+): Promise<Itinerary> {
+  return fastest(
+    await planData(a, b, time, signal, preferences, onAgencies),
+    time,
+  );
+}
+export async function planOptions(
+  a: Place,
+  b: Place,
+  time: Date,
+  signal?: AbortSignal,
+  preferences: Preferences = defaults,
+  onAgencies?: (agencies: string[]) => void,
+): Promise<Itinerary[]> {
+  return itineraries(
+    await planData(a, b, time, signal, preferences, onAgencies),
+    time,
+  ).slice(0, 3);
 }
 export async function searchOrigin(
   query: string,
@@ -173,6 +222,31 @@ export async function searchOrigin(
     lat: f.geometry.coordinates[1],
     lon: f.geometry.coordinates[0],
   }));
+}
+export async function reachable(
+  origin: Place,
+  time: Date,
+  signal?: AbortSignal,
+  maxMinutes = 45,
+): Promise<ReachableStop[]> {
+  const p = new URLSearchParams({
+    one: `${origin.lat},${origin.lon}`,
+    time: time.toISOString(),
+    maxTravelTime: String(maxMinutes),
+  });
+  const data = await json(
+    `https://api.transitous.org/api/v6/one-to-all?${p}`,
+    signal,
+  );
+  return (data.all || []).flatMap((entry: any) => {
+    const at = entry?.place;
+    return at &&
+      Number.isFinite(entry.duration) &&
+      Number.isFinite(at.lat) &&
+      Number.isFinite(at.lon)
+      ? [{ lat: at.lat, lon: at.lon, minutes: entry.duration }]
+      : [];
+  });
 }
 export async function nearby(
   origin: Place,

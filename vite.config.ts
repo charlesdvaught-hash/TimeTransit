@@ -29,13 +29,30 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          globIgnores: ["**/scan/**"],
           runtimeCaching: [
+            {
+              urlPattern: /\/scan\/.*\.json$/,
+              handler: "StaleWhileRevalidate",
+              options: {
+                cacheName: "scan-index",
+                expiration: { maxEntries: 5, maxAgeSeconds: 604800 },
+              },
+            },
             {
               urlPattern: /^https:\/\/[a-d]\.basemaps\.cartocdn\.com\//,
               handler: "CacheFirst",
               options: {
                 cacheName: "basemap",
                 expiration: { maxEntries: 500, maxAgeSeconds: 604800 },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/(server|services)\.arcgisonline\.com\//,
+              handler: "CacheFirst",
+              options: {
+                cacheName: "satellite",
+                expiration: { maxEntries: 600, maxAgeSeconds: 604800 },
               },
             },
             {
@@ -71,6 +88,12 @@ export default defineConfig(({ mode }) => {
               if (key) proxyReq.setHeader("apiKey", key);
             });
           },
+        },
+        "/gtfsrt": {
+          target: "https://api.octa.net",
+          changeOrigin: true,
+          rewrite: (path) =>
+            path.replace(/^\/gtfsrt/, "/GTFSRealTime/protoBuf") + ".aspx",
         },
       },
     },

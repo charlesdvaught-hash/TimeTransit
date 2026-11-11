@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { searchParams, searchOrigin, plan, search } from "./api";
+import { searchParams, searchOrigin, plan, search, reachable } from "./api";
 import { categories, chicago } from "./core";
 describe("Photon category queries", () => {
   for (const [label, tag] of Object.entries(categories)) {
@@ -75,6 +75,27 @@ describe("fuzzy free-text search", () => {
       spy.mockRestore();
     }
   });
+});
+it("reads reachable stop minutes from one-to-all", async () => {
+  const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        all: [
+          { place: { lat: 41.9, lon: -87.6 }, duration: 12 },
+          { place: { name: "unlocated" }, duration: 4 },
+        ],
+      }),
+    ),
+  );
+  try {
+    const stops = await reachable(chicago, new Date("2026-11-10T01:00:00Z"));
+    expect(stops).toEqual([{ lat: 41.9, lon: -87.6, minutes: 12 }]);
+    const url = new URL(String(spy.mock.calls[0][0]));
+    expect(url.pathname).toBe("/api/v6/one-to-all");
+    expect(url.searchParams.get("maxTravelTime")).toBe("45");
+  } finally {
+    spy.mockRestore();
+  }
 });
 it("resolves a bare ZIP with US bias, without a local bounding box", async () => {
   const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(

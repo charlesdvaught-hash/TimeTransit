@@ -21,8 +21,14 @@ vi.mock("react", () => ({
   },
   useEffect() {},
 }));
-vi.mock("./api", () => ({ search: vi.fn(), plan: vi.fn(), nearby: vi.fn() }));
-import { search, plan } from "./api";
+vi.mock("./api", () => ({
+  search: vi.fn(),
+  plan: vi.fn(),
+  planOptions: vi.fn(),
+  nearby: vi.fn(),
+  reachable: vi.fn(),
+}));
+import { search, plan, planOptions, reachable } from "./api";
 import { useTimeTransit } from "./useTimeTransit";
 
 function render() {
@@ -48,17 +54,19 @@ const itinerary: Itinerary = {
 beforeEach(() => {
   hooks.cells = [];
   vi.clearAllMocks();
+  vi.mocked(reachable).mockResolvedValue([]);
+  vi.mocked(planOptions).mockResolvedValue([itinerary]);
 });
 
 it("keeps Explore streaming through dwell and return edits", async () => {
-  const pending = deferred<Itinerary>();
+  const pending = deferred<Itinerary[]>();
   vi.mocked(search).mockResolvedValue([first, second]);
-  vi.mocked(plan).mockImplementation(async (_origin, place) =>
-    place.id === first.id ? itinerary : pending.promise,
+  vi.mocked(planOptions).mockImplementation(async (_origin, place) =>
+    place.id === first.id ? [itinerary] : pending.promise,
   );
   const running = render().run("Coffee");
   await vi.waitFor(() => expect(render().results).toHaveLength(1));
-  const signal = vi.mocked(plan).mock.calls[0][3]!;
+  const signal = vi.mocked(planOptions).mock.calls[0][3]!;
   render().setDwell(30);
   render().setBack(false);
   const state = render();
@@ -66,7 +74,7 @@ it("keeps Explore streaming through dwell and return edits", async () => {
   expect(state.exploreBusy).toBe(true);
   expect(state.tripBusy).toBe(false);
   expect(state.progress).toEqual([1, 2]);
-  pending.resolve(itinerary);
+  pending.resolve([itinerary]);
   await running;
   expect(render().results).toHaveLength(2);
   expect(render().exploreBusy).toBe(false);
@@ -126,21 +134,33 @@ it("appends a chosen place to the box and pins it", async () => {
 });
 
 it("clears partial Explore results when departure changes and ignores late routes", async () => {
-  const pending = deferred<Itinerary>();
+  const pending = deferred<Itinerary[]>();
   vi.mocked(search).mockResolvedValue([first, second]);
-  vi.mocked(plan).mockImplementation(async (_origin, place) =>
-    place.id === first.id ? itinerary : pending.promise,
+  vi.mocked(planOptions).mockImplementation(async (_origin, place) =>
+    place.id === first.id ? [itinerary] : pending.promise,
   );
   const running = render().run("Coffee");
   await vi.waitFor(() => expect(render().results).toHaveLength(1));
-  const signal = vi.mocked(plan).mock.calls[0][3]!;
+  const signal = vi.mocked(planOptions).mock.calls[0][3]!;
   render().setDeparture("2026-11-10T16:00");
   expect(signal.aborted).toBe(true);
   expect(render().results).toEqual([]);
   expect(render().progress).toEqual([0, 0]);
   expect(render().exploreBusy).toBe(false);
-  pending.resolve(itinerary);
+  pending.resolve([itinerary]);
   await running;
   expect(render().results).toEqual([]);
   expect(render().selected).toBeNull();
+});
+
+it("uses a separate stay duration for each stop", async () => {
+  vi.mocked(search).mockImplementation(async (q) =>
+    String(q).toLowerCase() === "coffee" ? [first] : [second],
+  );
+  vi.mocked(plan).mockResolvedValue(itinerary);
+  render().setStopDwell(1, 40);
+  await render().run("coffee + pharmacy");
+  const visits = render().chain!.visits;
+  expect(visits.find((v) => v.place.id === "first")!.stop.dwell).toBe(15);
+  expect(visits.find((v) => v.place.id === "second")!.stop.dwell).toBe(40);
 });

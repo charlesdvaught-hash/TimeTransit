@@ -1,4 +1,5 @@
 const TARGET = "https://external.transitapp.com";
+const GTFSRT = "https://api.octa.net/GTFSRealTime/protoBuf";
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
@@ -19,18 +20,31 @@ export default {
         { error: "GET requests only" },
         { status: 405, headers: cors },
       );
-    if (!env.TRANSIT_API_KEY)
-      return Response.json(
-        { error: "Relay not configured: TRANSIT_API_KEY missing" },
-        { status: 500, headers: cors },
-      );
     const url = new URL(request.url);
-    const upstream = await fetch(TARGET + url.pathname + url.search, {
-      headers: {
-        apiKey: env.TRANSIT_API_KEY,
-        "Accept-Language": request.headers.get("Accept-Language") || "en",
-      },
-    });
+    let upstream;
+    if (url.pathname.startsWith("/gtfsrt/")) {
+      // OCTA keyless GTFS-RT pass-through (CORS is absent upstream)
+      upstream = await fetch(
+        `${GTFSRT}${url.pathname.slice(7)}.aspx${url.search}`,
+        {
+          headers: {
+            "Accept-Language": request.headers.get("Accept-Language") || "en",
+          },
+        },
+      );
+    } else {
+      if (!env.TRANSIT_API_KEY)
+        return Response.json(
+          { error: "Relay not configured: TRANSIT_API_KEY missing" },
+          { status: 500, headers: cors },
+        );
+      upstream = await fetch(TARGET + url.pathname + url.search, {
+        headers: {
+          apiKey: env.TRANSIT_API_KEY,
+          "Accept-Language": request.headers.get("Accept-Language") || "en",
+        },
+      });
+    }
     const headers = new Headers(upstream.headers);
     for (const [name, value] of Object.entries(cors)) headers.set(name, value);
     return new Response(upstream.body, {
