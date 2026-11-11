@@ -47,8 +47,9 @@ Worker env (never bundled; secrets via `wrangler secret put`, plain values as
 - `GROQ_API_KEY`, `GEMINI_API_KEY` — LLM provider secrets for `POST /llm`.
 - `GMAPS_API_KEY` — Google Places key for `GET /gmaps/*` (restrict by HTTP
   referrer in the Google Cloud console).
-- `LLM_PROVIDERS` — comma-separated fallback order; deployed as `gemini,groq`
-  (the code default is `groq,gemini`).
+- `LLM_PROVIDERS` — comma-separated fallback order, default and deployed
+  `groq,gemini` (probe: Groq 19/20 schema-valid @ ~0.5 s, Gemini ~10/20 with
+  intermittent 403/503 — Gemini is the fallback, not the primary).
 - `TRANSIT_API_KEY`, `ALLOWED_ORIGINS` — existing Transit relay config.
 
 ## Architecture
