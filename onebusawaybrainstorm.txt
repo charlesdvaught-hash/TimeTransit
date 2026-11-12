@@ -1,0 +1,464 @@
+================================================================================
+ONEBUSAWAY x TIMETRANSIT — BRAINSTORM / WORKING PLAN
+Started: 2026-11-12 · discussion doc, no code decisions yet
+================================================================================
+
+DAVE'S CONSTRAINTS (set 2026-11-12 — drives all priorities below)
+--------------------------------------------------------------------------------
+- Dave is the first tester. If it doesn't fit HIS needs, it never ships.
+- Dave lives in Orange County -> LA/OC functionality is MANDATORY.
+- Expansions are definitely wanted ONLY if they don't inhibit the core OC
+  experience. Any added provider must be additive per-region, never a
+  regression on home turf (OCTA GTFS-RT + Transit fallback stay intact).
+- Release planning matters -> note: Transit API's free tier (1,500
+  calls/month hard cap + paid agreement required for real scale + 10-day
+  notice before going public) is a RELEASE BLOCKER, not just a demo limit.
+  Anything that removes that dependency doubles as release de-risking.
+
+DECISION (11-12): Oracle Cloud Always Free (Ampere A1) as the host —
+  strict $0-forever stack; revisit paid hosting only if the project ever
+  becomes profitable. e2-micro path shelved (its external IPv4 ~$3.65/mo
+  leaks past the $0 constraint anyway).
+
+DECISION (11-12, later): personal PC stays OUT of the loop — no local
+  Docker even for the spike. The A1 VM IS the test environment (build,
+  run, eyeball via browser URLs; if it disappoints, delete the VM).
+  Throwaway alternatives pre-Oracle-signup: GitHub Codespaces (free
+  ~120 core-hrs/mo, Docker + HTTPS port-forward) or a Devin cloud
+  session running the spike and reporting back. Upside: no "worked on
+  my machine" gap — the spike runs in the prod environment from day 1.
+
+WHAT ONEBUSAWAY ACTUALLY IS (verified, not vibes)
+--------------------------------------------------------------------------------
+- Open-source real-time transit server (Java/Tomcat) + REST API + apps.
+  github.com/OneBusAway: onebusaway-application-modules (server),
+  onebusaway-api-webapp (REST), onebusaway-gtfs-modules (GTFS lib),
+  onebusaway-docker (official Docker compose), Wayfinder (SvelteKit web UI),
+  iOS/Android apps, OBACloud sidecar (push alarms, Live Activities).
+- REST API surface (full list from developer.onebusaway.org + official
+  OpenAPI spec at OneBusAway/sdk-config/stainless/openapi.yml):
+    arrivals-and-departures-for-stop/{id}
+    arrivals-and-departures-for-location   <- one call, radius/bbox, every
+                                              predicted arrival nearby
+    stops-for-location / routes-for-location / stops-for-route
+    trip-details/{tripId}                  <- status: live position, bearing,
+                                              scheduleDeviation (sec), nextStop,
+                                              predicted flag, occupancyStatus/
+                                              Count/Capacity (CROWDING),
+                                              nextTripId/previousTripId
+                                              (bus continues as another route)
+    trips-for-location / trips-for-route / vehicles-for-agency
+    schedule-for-stop / schedule-for-route (full-day timetables)
+    shape/{shapeId}, search/route, search/stop, agencies-with-coverage
+- Official TypeScript SDK on npm: onebusaway-sdk@1.21.1 (Stainless-generated).
+- CORS verified open (Access-Control-Allow-Origin: * on api.pugetsound...).
+  key=TEST works but is shared/rate-limited; real use needs a free key per
+  region or your own deployment.
+
+THE COVERAGE REALITY (this shapes everything)
+--------------------------------------------------------------------------------
+Hosted OBA regions (live fetch of regions.onebusaway.org/regions-v3.json):
+  Tampa Bay      api.tampa.onebusawaycloud.com      OBA realtime + SIRI
+  Puget Sound    api.pugetsound.onebusaway.org      OBA realtime + SIRI
+  MTA New York   bustime.mta.info                    SIRI only (no OBA realtime)
+  Washington DC  buseta.wmata.com/onebusaway-api-webapp  OBA realtime + SIRI
+  San Diego      realtime.sdmts.com/api              OBA realtime
+  Adelaide AU    transit.nautilus-tech.com.au        OBA realtime
+  Davis CA       api.unitrans.onebusawaycloud.com    experimental, OBACloud
+
+  >>> NO Los Angeles / Orange County region exists. <<<
+  San Diego is the closest (reachable: Metrolink->Oceanside->Coaster).
+
+So "use OBA" splits into THREE DIFFERENT PLAYS with different costs:
+
+  PLAY A - Hosted OBA as a second live-ETA provider, for covered regions only.
+  PLAY B - Self-host an OBA instance fed SoCal feeds (OCTA + LA Metro GTFS-RT).
+  PLAY C - Borrow OBA artifacts/ideas without running or calling it.
+
+================================================================================
+PLAY A — HOSTED OBA IN COVERED REGIONS (cheap, partial)
+================================================================================
+What it changes: TimeTransit becomes a provider-dispatch app. A small
+"who covers this origin?" check routes live-ETA calls to OBA instead of the
+Transit API when inside an OBA region.
+
+Effects:
++ Live ETAs, nearby departures, route cards, live bus marker in Seattle,
+  Tampa, DC, San Diego, Davis, Adelaide — with no per-call Transit quota.
++ San Diego is adjacent to TimeTransit's turf: OC->SD trips (Metrolink to
+  Oceanside + Coaster) could have live legs on BOTH ends.
++ arrivals-and-departures-for-location collapses today's 2-call
+  nearby_stops -> stop_departures pattern into ONE call — cheaper + fresher
+  for the Nearby Now strip, tap cards, and saved-places board.
++ schedule-for-stop gives real departure boards in OBA regions WITHOUT
+  building a GTFS index (scan.ts needs a per-agency index; OBA doesn't).
+- Needs a free API key per region; TEST is shared + throttled (hit a 429).
+- Keys live in the worker relay if we don't want them in the bundle — CORS
+  is open so direct calls work, but a bundled key is quota-theft bait.
+- MTA NY is SIRI-only — skip unless we ever write a SIRI client.
+- Does nothing for LA/OC. This alone is not "drastic" for home turf.
+
+Effort: small-medium. It's a provider abstraction over transit.ts's
+functions (liveDepartures / departuresNear / routeInfoAt / liveVehicle)
+plus a regions bounds check (ship ~200 lines of the v3 regions JSON).
+
+================================================================================
+PLAY B — SELF-HOSTED OBA FOR SOUTHERN CALIFORNIA (the drastic one)
+================================================================================
+The idea: run our own OBA server, feed it:
+  - OCTA GTFS (octa.net/current/google_transit.zip — we already consume it)
+  - OCTA GTFS-RT tripupdates + vehiclepositions + servicealerts (keyless,
+    api.octa.net — already relayed at /gtfsrt/*)
+  - LA Metro GTFS (gitlab.com/LACMTA/gtfs_{bus,rail} — keyless, already used
+    for the network layer)
+  - LA Metro GTFS-RT via Swiftly (api.goswift.ly — free key, Authorization
+    header; OBA supports per-feed auth headers via FEED_API_KEY/
+    FEED_API_VALUE). NOTE probed 11-12: api.metro.net is a keyless JSON API
+    (route_overview verified, 124 routes) but its real-time trip_detail
+    endpoints returned [] — likely needs an OAuth account or has other
+    gating — and sends NO CORS headers (relay required regardless). It also
+    has a WebSocket pushing vehicle_positions/trip_updates every 3 s —
+    interesting alt path, auth status unverified. For OBA ingestion,
+    Swiftly's GTFS-RT protobuf is the reliable path.
+
+Official path exists: github.com/OneBusAway/docker — `oba_bundler` builds a
+bundle from GTFS_URL, `oba_app` serves api-webapp. Needs a JVM container +
+MySQL/Postgres (JDBC_*). Render.com deploy guide exists; OBACloud (managed
+hosting by Open Transit Software Foundation — Tampa & Davis run on it) is
+the "ask someone else to run it" option.
+
+What it buys, mapped to features:
+
+1. KILL THE QUOTA CEILING. The whole live layer is currently rationed:
+   Transit free tier = 5 calls/min + 1,500 calls/month, hard suspension,
+   revocable at will, "Powered by Transit" badge required, no archiving.
+   Self-hosted OBA = our server, our rules, effectively unlimited calls.
+   Every throttled feature becomes always-on: per-leg ETAs, the 60 s
+   alternative-comparison cap, board ETAs, Nearby Now, tap cards.
+   This is the single biggest effect — it converts live ETA from a demo
+   feature into a core feature.
+
+2. A REAL PREDICTION ENGINE instead of raw delay passthrough. Today
+   gtfsrt.ts applies raw feed delays to the scan. OBA blends schedule +
+   vehicle positions + layovers + frequency-based trips into per-stop
+   predicted arrival/departure times — that's what trip-details'
+   `predicted`/`scheduleDeviation` actually is. Better ETAs, better
+   watchdog re-checks, better transfer-miss detection.
+
+3. LA METRO JOINS THE REALTIME WORLD. Metro legs currently fall back to
+   the capped Transit API for live vehicles (see liveVehicle comment in
+   transit.ts). Self-hosted OBA ingests Metro GTFS-RT -> Metro buses AND
+   rail get predicted ETAs + live positions + alerts, same as OCTA.
+
+4. ONE CALL FOR NEARBY DEPARTURES. arrivals-and-departures-for-location
+   (radius query) serves Nearby Now, tap cards, and the saved-places
+   board — replaces N stop lookups + batched departures. The worker
+   /api/nearby and /api/board routes get simpler too.
+
+5. LIVE VEHICLE LAYER. vehicles-for-agency + trips-for-location give every
+   active bus position + bearing — could paint a real "buses around me"
+   layer, not just the one bus on a selected leg.
+
+6. NEW UX SURFACES no current source offers:
+   - Occupancy: trip-details occupancyStatus/Count/Capacity -> "crowded"
+     badges (IF the OCTA/Metro feeds carry occupancy — unverified).
+   - Block chaining: nextTripId/previousTripId -> "stay seated, this bus
+     becomes the 57" and smarter watchdog (vehicle persists across tripId).
+   - nextStop/closestStop + scheduleDeviation per leg -> richer riding
+     view ("2 stops away, running 4 late").
+
+7. RELIABILITY MODEL GOES WIDE. Self-hosted OBA data isn't under Transit's
+   no-archiving terms. Poll trip-details/arrivals -> predicted-vs-actual
+   observations at scale -> statistics converge faster. Moonshot version:
+   the onebusaway-gtfs-realtime-archiver module (or a cron) builds a
+   historical delay dataset -> bake "typically +4 min at this stop at 5pm"
+   into journey-time ranking itself.
+
+8. GTFS-RT RE-EXPORT (lowest-diff variant). OBA can re-export combined
+   GTFS-RT (trip updates/positions/alerts). A self-hosted OBA could act as
+   a SoCal RT NORMALIZER: OCTA + Metro in, one unified GTFS-RT out — which
+   the EXISTING gtfsrt.ts decoder consumes unchanged. Client diff ≈ zero.
+   (Verify the exporter webapp ships in the Docker image first.)
+
+Costs/risks, honestly:
+- Breaks the "no backend" purity: adds a JVM + relational DB to infra
+  (worker stays serverless; this can't be).
+- Multi-agency: `GTFS_RT_FEEDS` env (verified in OneBusAway/docker README)
+  takes a JSON array of feeds {tripUpdatesUrl, vehiclePositionsUrl,
+  alertsUrl, refreshInterval, agencyIds[]} — OCTA + Metro realtime in ONE
+  deployment via a single env var. RESIDUAL: static side is still one
+  GTFS_URL per bundle — combining OCTA+Metro+MetroRail static GTFS needs
+  either a merged zip (gtfstidy/merge tool — the image ships gtfstidy
+  already) or multi-input bundle build. Verify in the spike; OCTA-only is
+  a fine v1 anyway since that's Dave's turf.
+- You become the data pipeline: feed outages, GTFS version drift, bundle
+  rebuilds on schedule changes.
+- OBA needs BOTH tripUpdates + vehiclePositions for positions (their docs).
+
+$0 HOSTING LADDER (researched 11-12 — Dave: no spend until proven)
+--------------------------------------------------------------------------------
+Stack facts that make this cheap (verified from OneBusAway/docker):
+  - docker-compose includes its own mysql:8.4 AND postgres:16 services —
+    the WHOLE stack = one Docker host + disk. No external DB to rent.
+  - Image builds OBA 2.7.2 from source (maven multi-stage Dockerfile) ->
+    architecture follows host -> ARM64 boxes work natively.
+  - TimeTransit already degrades gracefully when live data is missing, so
+    a sleepy free host just means "live features nap until warm" — the
+    app never breaks.
+
+  RUNG 0 — Docker Desktop on this Windows box: >>> REJECTED 11-12 — Dave
+    wants the personal PC out of the loop entirely. Local Docker survives
+    in this doc only as a note that it existed; the spike runs on the A1
+    VM (or Codespaces/a Devin session as a throwaway).
+  RUNG 1 — Same box + cloudflared tunnel (free): gives the DEPLOYED PWA
+    an https URL to reach your home OBA. No ports opened, no IP exposed.
+    >>> REJECTED 11-12 (Dave): a 1200W-class desktop idling with Docker
+    draws ~80-150W => 60-110 kWh/mo => ~$20-35/mo at SCE rates — the
+    "free" host costs more than a paid VPS and is far less efficient
+    than shared ARM cloud silicon. Home hosting is out; local Docker
+    remains ONLY for the hours-long spike.
+  RUNG 2 — Oracle Cloud Always Free (Ampere A1 ARM): 4 OCPU / 24GB RAM /
+    200GB disk, free forever — the only forever-free tier that runs
+    JVM+DB comfortably 24/7. Since the image builds from source, ARM is
+    fine. >>> CHOSEN HOST <<<
+    Oracle specifics to plan around:
+    * Generous headroom: free tier allows up to 4 A1 cores / 24GB total —
+      enough that the VM can build its OWN bundles (unlike e2-micro), so
+      the Devin robot can trigger on-box rebuilds or just watch+verify.
+    * Free public IPs + ~10TB/mo egress — no GCP-style IP leak. Serve
+      :8080 direct for POC (worker fetches it), add cloudflared/Caddy
+      TLS later.
+    * Signup needs a card (verification charge, refunded) — still $0.
+    * Capacity lottery: Ampere A1 is sometimes "out of capacity" at VM
+      creation in hot regions. Workarounds: retry, pick us-sanjose-1 or
+      us-phoenix-1 (closest to SoCal), or create 1 OCPU/6GB first and
+      scale up later.
+    * Idle reclaim: Oracle can reclaim always-free VMs that sit idle —
+      our own watchdog/health-ping doubles as keep-alive load.
+  RUNG 3 — Google Cloud Always Free e2-micro (us-west1): 1GB RAM — too
+    tight to BUILD on (maven will OOM); workable only if the image is
+    built elsewhere and pushed (GHCR/Docker Hub). Cramped but $0.
+  NOT recommended for $0:
+    Render free — official guide targets it, but free services sleep
+    15 min and its free Postgres EXPIRES ~30 days; the guide's PlanetScale
+    free DB is dead (Hobby tier discontinued). OK for a quick demo URL,
+    not for dogfooding.
+    AWS/Azure free tiers — 12-month clocks, then they bill; surprise-bill
+    risk for a $0 constraint.
+    Railway — one-time $5 trial credit only. Fly.io — no real free tier.
+    Hugging Face Spaces — free Docker (2vCPU/16GB!) but sleeps when idle
+    and is public-by-default; hacky, keep as backup.
+    Koyeb free 512MB — too small for Tomcat+DB.
+  WILD CARD — OBACloud (OTSF managed hosting): unknown pricing, but they
+    host community regions; an email asking about a SoCal instance for an
+    open-source transit project could plausibly be $0-or-cheap AND removes
+    all ops. Costs one email to find out.
+
+  e2-micro reality check (verified 11-12): free = 1 non-preemptible
+    e2-micro in us-west1/us-central1/us-east1 + 30GB pd-standard + 1GB/mo
+    NA egress. NOT free: in-use external IPv4 ~$0.005/hr (~$3.65/mo) — and
+    the VM can't reach the net without one (no-IP needs paid Cloud NAT).
+    The $300 signup credit covers the POC window, so it's $0 to prove,
+    ~$3.65/mo after unless we land on Oracle A1 instead. Also: OBA needs
+    ~2GB+ JVM realistically (official guide: small agency = 2GB server,
+    -Xmx1-2g) — on 1GB the JVM+PG will swap; survivable for a single user,
+    not pleasant. "Manually expand" = gcloud set-machine-type e2-small
+    (~$13/mo) whenever it hurts.
+
+  DAVE'S PIPELINE (agreed 11-12): private repo + Devin automation
+  ----------------------------------------------------------------
+    - Private GitHub repo / GHCR = ARTIFACT STORE (not a runtime DB —
+      OBA needs live JDBC; but the DB is derived state, rebuildable from
+      the bundle, so nothing of value is lost by treating it as scratch).
+      Automation builds the bundle/image, pushes to GHCR; VM pulls.
+    - Devin automation = THE OPS ROBOT (sessions are ephemeral — can't be
+      the 24/7 host, but perfect for scheduled jobs):
+        weekly: pull fresh OCTA(+Metro) GTFS -> build bundle (ghcr image
+          with bundle baked in — OBA's own docs bless this pattern) ->
+          push -> trigger VM `docker compose pull && up -d` (ssh/webhook
+          or gcloud) -> verify /api/where/config.json 200 -> report.
+        watchdog: ping OBA, restart VM on failure, flag GTFS version
+          drift (OCTA feed currently expires 2027-02-13 — someone must
+          notice when agencies push new zips; the robot does).
+      This automates away the #1 Play-B risk: "you become the data
+      pipeline." Caveat: Devin automations consume Devin usage — free
+      only inside Dave's existing allowance; GitHub Actions on the PUBLIC
+      repo is the guaranteed-free alternative (private repos cap free
+      Actions at ~2,000 min/mo — fine for weekly builds anyway).
+    - HOST = Oracle A1 VM (24GB headroom): runs postgres + oba_app, and
+      CAN build its own bundles — so two valid operating modes:
+        a) GHCR flow (immutable): robot builds+pushes image, VM pulls.
+        b) on-box flow (simplest): robot (or plain cron) runs
+           `docker compose up oba_bundler` weekly then restarts oba_app —
+           no registry, no image shipping. Start with (b); (a) if we ever
+           want staging or rollback.
+      Either way the VM also gets keep-alive load from the watchdog ping.
+    - Bonus option: GitHub Codespaces free tier (120 core-hrs/mo) can run
+      the whole stack for demo sessions with port-forwarded HTTPS —
+      another $0 host for POC nights, sessions sleep when not used.
+
+  Net: $0 proof entirely possible (Rung 0 local spike only), $0 always-on
+  = Oracle A1 (chosen). Graceful degradation means even a free host that
+  hiccups is USABLE for Dave-as-tester.
+
+================================================================================
+PLAY C — BORROW ARTIFACTS, RUN NOTHING (near-free)
+================================================================================
+- regions-v3.json: ship the bounds list; coverage-aware provider dispatch
+  (the seam Play A needs anyway).
+- onebusaway-sdk (npm, Apache-2.0): typed client if Play A/B happens —
+  don't hand-roll the REST shapes.
+- OBA REST API shape as the LiveProvider interface: it's a well-designed,
+  battle-tested read model (stop arrivals, trip status w/ deviation,
+  vehicle positions). Even if Transit stays the only backend, defining
+  the interface in OBA-like terms makes future providers cheap.
+- Wayfinder (SvelteKit UI): mine for UX patterns (stop pages, sign mode —
+  a kiosk-style departure board view of a saved place is a cute feature).
+- Deep-links spec (onebusaway-deep-links): "Open in OneBusAway" hand-off
+  in covered regions — trivial garnish.
+- report-problem-with-stop/trip: a "flag wrong data" affordance — low
+  value for us, skip unless trivial.
+- OBACloud push alarms: iOS-APNs only, no web push -> NOT usable for a
+  PWA. Noted so nobody burns a day on it.
+
+ACCURACY SCOREBOARD (Dave's idea, 11-12)
+--------------------------------------------------------------------------------
+Goal: log predicted times vs real-ride outcomes, then compare providers
+(OBA vs raw GTFS-RT vs Transit API) in a table with accuracy rates.
+
+Verdicts:
+- External DB for OBA itself: NO. Its DB is rebuildable scratch from the
+  bundle; a hosted DB adds latency + a sleeping free-tier dependency and
+  stores nothing valuable. In-compose Postgres on A1 stays.
+- Log store for OUR accuracy data: YES — but the best "free provider" is
+  one already owned: the Cloudflare Worker. D1 free tier (5GB, 100k
+  writes/day) or the existing TT_STATE_KV. Zero new accounts, rides the
+  existing /api/* route pattern. Accuracy log is OUR data (not OBA's) so
+  it belongs on OUR infra anyway — survives VM rebuilds/migrations.
+
+Why this is cheap: the bones already exist.
+  - reliability.ts/reliabilityStore.ts = a complete observation model
+    (observation, mergeObservations, weighted statistics, GPS-vs-feed
+    weighting, 10k cap, simulated-data quarantine — the ?simulate=1 lab
+    can't pollute real stats).
+  - boarding.ts + useTripTracking = real-ride ground truth (actual
+    board/arrive times from GPS).
+  - ReliabilityPanel.tsx = existing UI shell for these stats.
+  New work, three pieces:
+    1. Tag predictions with source: {route, stop, scheduled, predicted,
+       provider: octa-rt|oba|transit, queriedAt}.
+    2. Close the loop: boarding detection actuals paired to predictions.
+    3. Table per provider: mean error, % within +/-3min, bias, n.
+  Payoff: "does OBA beat raw delay?" becomes a measured scoreboard over
+  weeks of real rides, not a one-afternoon vibe check — and any future
+  provider is just another column. Honest limit: ground truth = Dave's
+  rides only — which matches the stated ship criterion exactly.
+
+WHAT OBA DOES *NOT* DO (scope honesty)
+--------------------------------------------------------------------------------
+- No trip planning. OBA pairs with OTP; MOTIS/Transitous + our scan stay.
+- No geocoding/POIs. Photon/TomTom/Overture stay.
+- Doesn't change journey-time ranking directly — all its value is in the
+  realtime layer (ETAs, positions, alerts, occupancy).
+- Hosted regions won't help LA/OC. Self-host is the only OBA play that
+  touches home turf.
+
+THE HONEST ALTERNATIVE (the "do we even need OBA" question)
+--------------------------------------------------------------------------------
+We could get ~70% of Play B's benefit by extending gtfsrt.ts: relay
+/gtfsrt/metro/* to api.metro.net or Swiftly (key stays worker-side), decode
+with the existing protobuf decoder, feed scan + watchdog + a vehicle layer.
+What self-hosted OBA adds beyond that: correct trip-matching across
+agencies, real per-stop prediction (vs raw delay), schedule-for-* boards,
+occupancy, block info — a prediction engine vs a passthrough.
+Decision axis: ops appetite + money vs correctness and feature ceiling.
+
+OPEN QUESTIONS FOR DAVE
+--------------------------------------------------------------------------------
+1. Ops appetite for a JVM+DB service (Play B) — still THE deciding
+   question, but the $0 ladder above removes the cost objection: local
+   Docker proves it for free; home-tunnel or Oracle A1 dogfoods it for
+   free. OBACloud (managed) could remove even the ops. If "PWA + Worker
+   only" is a hard constraint regardless, Play B dies and the answer is
+   "extend gtfsrt.ts for Metro + keep Transit capped."
+2. Any existing relationship/budget for data providers? Compare Transit
+   API paid tier pricing vs OBA self-host TCO before committing.
+3. Do OCTA/Metro GTFS-RT feeds actually carry occupancy? (30-min probe.)
+4. Metro Swiftly key: free signup at goswift.ly/realtime-api-key — worth
+   grabbing regardless of which play wins, since it's also the cheap-path
+   feed for extending gtfsrt.ts.
+
+REVISED RECOMMENDATION (after Dave's constraints)
+--------------------------------------------------------------------------------
+Ordered by value-per-effort, OC-safe all the way down:
+
+  STEP 1 (cheap, OC-first): extend gtfsrt.ts + relay for LA Metro GTFS-RT
+    via Swiftly (key stays worker-side). Metro legs — currently only live
+    through the capped Transit key (see liveVehicle fallback) — get real
+    delays, positions, alerts through the SAME decoder already running.
+    Zero effect on OCTA behavior; pure addition. ~90% of "Metro joins
+    realtime" for a fraction of Play B's cost.
+  STEP 2 (spike): OBA Docker locally with the OCTA bundle. Judge whether
+    OBA's predicted arrivals visibly beat raw delay passthrough on a known
+    route (e.g. 55 on Haster). This is the go/no-go evidence for Play B.
+  STEP 3 (if spike convinces): self-host SoCal OBA -> becomes THE live
+    provider for home turf; Transit API demoted to fallback for elsewhere.
+    Solves quota AND the release-scaling problem in one move.
+  STEP 4 (free rider): once a LiveProvider interface exists, region
+    dispatch to hosted OBA (Seattle/Tampa/DC/SD/Davis) is nearly free —
+    and explicitly expansion-safe: dispatch defaults to current behavior
+    outside OBA bounds, so OC is untouched.
+
+SUGGESTED NEXT STEPS (no code yet)
+--------------------------------------------------------------------------------
+- [x] Probe api.metro.net: keyless JSON API but real-time endpoints
+      returned [] (auth/params unclear), NO CORS -> not the RT path.
+      WebSocket alt exists, unverified. Swiftly = Metro RT path.
+- [x] OCTA relay health: /gtfsrt/tripupdates 32KB, /VehiclePositions 30KB,
+      /servicealerts live via deployed worker — feed is healthy today.
+- [ ] Probe api.goswift.ly free key terms for Metro feeds.
+- [ ] Probe OCTA GTFS-RT occupancy fields (decode VehiclePositions for
+      occupancy_status / occupancy_percentage).
+- [ ] REMOTE spike (replaces local): Oracle signup -> A1 VM in
+      us-sanjose-1/us-phoenix-1 -> docker compose with OCTA bundle ->
+      eyeball predictions for a known route (e.g. 55 Haster) via plain
+      browser URLs (no tools needed). If it fails the vibe check, delete
+      VM, done. Also answers: does the bundle build accept multi-GTFS
+      input, or do we need a merged OCTA+Metro zip for the static side?
+      (Codespaces or a Devin session = pre-signup throwaway options.)
+- [ ] Scoreboard instrumentation (needs NO OBA — can go first): tag
+      predictions with provider (octa-rt / transit), close the loop with
+      boarding-detection actuals, write to worker D1/KV, show
+      provider-accuracy table in ReliabilityPanel. OBA then just appears
+      as a third column the day it lands — the comparison answers itself.
+- [ ] Draft LiveProvider interface sketch (OBA-shaped) and see how cleanly
+      transit.ts refactors onto it — the diff tells us the real cost.
+- [ ] Devin-automation spike: can a scheduled session build the bundle +
+      push a GHCR image + restart the VM end-to-end? If yes, ops is
+      handled before it ever exists. (On A1 a plain cron could do the
+      rebuild too — automation then just watches and reports.)
+- [ ] Oracle signup + capacity hunt (us-sanjose-1/us-phoenix-1 preferred);
+      compose up with postgres + OCTA bundle; point worker /oba/* at it.
+- [ ] Email OBACloud re: managed SoCal — only if ops annoyance shows up;
+      it's the "pay later/managed" escape hatch alongside paid hosting.
+
+RECEIPTS (links used)
+--------------------------------------------------------------------------------
+- regions list: http://regions.onebusaway.org/regions-v3.json (live fetch)
+- API methods: developer.onebusaway.org/api/where/methods
+- OpenAPI spec: github.com/OneBusAway/sdk-config -> stainless/openapi.yml
+- trip-details shape: developer.onebusaway.org/api/where/methods/trip-details
+- Self-host: github.com/OneBusAway/docker; developer.onebusaway.org
+  /guides/realtime-configuration-guide, /guides/deployment/render
+- CORS + TEST key: curl'd api.pugetsound.onebusaway.org — ACAO:*, 429 on
+  shared TEST then 200 current-time
+- SDK: npm registry onebusaway-sdk@1.21.1
+- Metro RT: developer.metro.net/api (Swiftly agencyKeys lametro /
+  lametro-rail), transit.land feed record; api.metro.net/openapi.yaml
+  probed 11-12 — keyless JSON (route_overview works, trip_detail []),
+  no CORS, 3 s WebSocket for vehicle_positions/trip_updates
+- OCTA RT health: transit-relay.workers.dev/gtfsrt/* probed 11-12 —
+  tripupdates 32.7KB, VehiclePositions 30.7KB, servicealerts ~1KB, all 200
+- OBACloud: developer.onebusaway.org/projects/obacloud (managed hosting +
+  APNs sidecar features)
+================================================================================
