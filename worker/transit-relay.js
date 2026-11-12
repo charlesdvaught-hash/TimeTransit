@@ -103,13 +103,15 @@ function assistSchema() {
 }
 
 // STAGE-0: Gemini takes an OpenAPI-3.0 subset — drop additionalProperties
-// and fold type unions / null enum members; `pattern` is Groq-only.
+// and fold type unions / null enum members. `pattern` survives: it's
+// guidance-level for Gemini (Groq enforces it at the token level), but
+// the model demonstrably respects the date window.
 function geminiSchema(node) {
   if (Array.isArray(node)) return node.map(geminiSchema);
   if (!node || typeof node !== "object") return node;
   const out = {};
   for (const [k, v] of Object.entries(node)) {
-    if (k === "additionalProperties" || k === "pattern") continue;
+    if (k === "additionalProperties") continue;
     if (k === "type" && Array.isArray(v)) {
       out.type = v.filter((t) => t !== "null")[0] || "string";
     } else if (k === "enum" && Array.isArray(v)) {
