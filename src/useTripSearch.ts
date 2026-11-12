@@ -22,7 +22,7 @@ import {
   type TripChain,
 } from "./core";
 import { plan, planOptions, reachable, search } from "./api";
-import { parseQuery, shouldParse, toTerm } from "./semantic"; // STAGE-1
+import { parseQuery, rankPlaces, shouldParse, toTerm } from "./semantic"; // STAGE-1
 import { nameScore } from "./suggestions"; // STAGE-1
 import type { CachedPlan, SemanticParseResult } from "./contracts"; // STAGE-1
 import { inCoverage, reachableStops, scan } from "./scan";
@@ -279,15 +279,16 @@ export function useTripSearch({
       );
       const scanPromise = loadScanIndex().catch(() => undefined);
       loadPlaces();
+      const parsedQuery =
+        !pins[term.trim().toLowerCase()] &&
+        (!!expand?.length ||
+          constraints?.min_rating != null ||
+          constraints?.max_price != null);
       const candidates = pins[term.trim().toLowerCase()]
         ? [pins[term.trim().toLowerCase()]]
         : await (async () => {
             const terms = [term, ...(expand ?? []).slice(0, 3)];
             const seen = new Set<string>();
-            const parsedQuery =
-              !!expand?.length ||
-              constraints?.min_rating != null ||
-              constraints?.max_price != null;
             const [remote, gm] = await Promise.all([
               Promise.all(terms.map((t) => search(t, origin, c.signal))).then(
                 (a) => a.flat(),
@@ -342,13 +343,27 @@ export function useTripSearch({
           }),
         );
       }
-      const planned = rankByReachability(
+      const reachable20 = rankByReachability(
         origin,
         candidates,
         stops,
         preferences.walkingSpeed,
         { verifiedOnly: preferences.verifiedOnly }, // STAGE-4
-      ).slice(0, 20);
+      ).slice(0, 24);
+      // LLM-as-judge: for parsed queries the model reorders the top
+      // reachability-ranked candidates by intent fit (names + kinds only,
+      // never invented places); its picks get the expensive plan calls.
+      // Display order stays journey-time via rank(found) downstream.
+      let planned = reachable20.slice(0, 20);
+      if (parsedQuery && reachable20.length > 8) {
+        const order = await rankPlaces(term, reachable20, c.signal);
+        if (c.signal.aborted) return;
+        if (order?.length) {
+          const picked = order.map((i) => reachable20[i]).filter(Boolean);
+          const rest = reachable20.filter((p) => !picked.includes(p));
+          planned = [...picked, ...rest].slice(0, 15);
+        }
+      }
       const distanceRanks = new Map(
         [...candidates]
           .sort((a, b) => distance(origin, a) - distance(origin, b))

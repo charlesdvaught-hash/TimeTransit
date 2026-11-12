@@ -75,6 +75,60 @@ export function toTerm(r: SemanticParseResult): string {
   ].join(" + ");
 }
 
+// STAGE-5b: intent ranking — the model judges which fetched candidates
+// match the query's modifiers (name + venue kind only; never invents
+// places). Returns ordered candidate indices, or null on any failure.
+const rankSession = new Map<string, number[]>();
+export async function rankPlaces(
+  query: string,
+  places: { name: string; kind?: string }[],
+  signal?: AbortSignal,
+): Promise<number[] | null> {
+  const relay = import.meta.env.VITE_TRANSIT_RELAY;
+  if (!relay || !places.length) return null;
+  const key =
+    query.trim().toLowerCase() +
+    "|" +
+    places.map((p) => p.name.toLowerCase()).join("|");
+  const hit = rankSession.get(key);
+  if (hit) return hit;
+  try {
+    const r = await fetch(`${relay}/llm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.any([
+        ...(signal ? [signal] : []),
+        AbortSignal.timeout(2500),
+      ]),
+      body: JSON.stringify({
+        task: "rank",
+        input: JSON.stringify({
+          query,
+          candidates: places.map((p) => ({
+            name: p.name,
+            kind: p.kind ?? null,
+          })),
+        }),
+      }),
+    });
+    if (!r.ok) return null;
+    const o = await r.json();
+    const idx = o?.ranked_indices;
+    if (!Array.isArray(idx)) return null;
+    const order = [
+      ...new Set(
+        idx.filter(
+          (i): i is number => Number.isInteger(i) && i >= 0 && i < places.length,
+        ),
+      ),
+    ];
+    if (order.length) rankSession.set(key, order);
+    return order.length ? order : null;
+  } catch {
+    return null;
+  }
+}
+
 const session = new Map<string, SemanticParseResult>();
 
 export async function parseQuery(

@@ -36,6 +36,14 @@ const PROMPTS = {
     "max_price (0-4: 0=free 1=cheap 2=moderate 3=expensive 4=luxury); " +
     "otherwise null. Max 4 total stops. If nothing parseable, return " +
     "empty arrays, related_terms: [], and null constraints.",
+  rank:
+    "You rank candidate places for a transit trip planner. Given a " +
+    "JSON {query, candidates:[{name,kind}]}, return ranked_indices: the " +
+    "candidate indices (0-based) that best match the query's intent — " +
+    "including adjectives, vibes, cuisine, and price/rating hints — " +
+    "best match first. Only include plausibly relevant indices; omit " +
+    "clear mismatches. Judge only from the names and kinds given — " +
+    "never invent places.",
   assist:
     "You are the adventure planner for a transit trip planner. Turn the " +
     "request into an ordered multi-stop plan. Each stop: query (search " +
@@ -81,6 +89,14 @@ const PARSE_SCHEMA = {
     "min_rating",
     "max_price",
   ],
+  additionalProperties: false,
+};
+const RANK_SCHEMA = {
+  type: "object",
+  properties: {
+    ranked_indices: { type: "array", items: { type: "integer" } },
+  },
+  required: ["ranked_indices"],
   additionalProperties: false,
 };
 const ADVENTURE_SCHEMA = {
@@ -259,14 +275,17 @@ async function llm(request, env, cors) {
       { status: 400, headers: cors },
     );
   const { task, input, history, repair } = body;
-  if (task !== "parse" && task !== "assist")
+  if (task !== "parse" && task !== "assist" && task !== "rank")
     return Response.json(
-      { error: "task must be 'parse' or 'assist'" },
+      { error: "task must be 'parse', 'assist', or 'rank'" },
       { status: 400, headers: cors },
     );
-  if (typeof input !== "string" || !input || input.length > 300)
+  const inputCap = task === "rank" ? 4000 : 300;
+  if (typeof input !== "string" || !input || input.length > inputCap)
     return Response.json(
-      { error: "input must be a non-empty string of at most 300 chars" },
+      {
+        error: `input must be a non-empty string of at most ${inputCap} chars`,
+      },
       { status: 400, headers: cors },
     );
   if (
@@ -289,8 +308,18 @@ async function llm(request, env, cors) {
       history.map((h) => `${h.role}: ${h.content}`).join("\n");
   if (repair && Array.isArray(repair.errors) && repair.errors.length)
     user += `\n\nPrevious attempt failed validation: ${repair.errors.join("; ")}. Return only valid JSON matching the schema.`;
-  const schema = task === "parse" ? PARSE_SCHEMA : assistSchema();
-  const name = task === "parse" ? "semantic_parse" : "adventure_plan";
+  const schema =
+    task === "parse"
+      ? PARSE_SCHEMA
+      : task === "rank"
+        ? RANK_SCHEMA
+        : assistSchema();
+  const name =
+    task === "parse"
+      ? "semantic_parse"
+      : task === "rank"
+        ? "candidate_rank"
+        : "adventure_plan";
   const providers = (env.LLM_PROVIDERS || "groq,gemini")
     .split(",")
     .map((s) => s.trim())
