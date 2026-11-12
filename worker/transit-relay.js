@@ -1,5 +1,19 @@
 const TARGET = "https://external.transitapp.com";
 const GTFSRT = "https://api.octa.net/GTFSRealTime/protoBuf";
+// W1: Transitous/MOTIS for keyless server-side planning + nearby departures.
+const MOTIS = "https://api.transitous.org";
+// transitous 403s UA-less requests; matches src/api.ts' server-side UA.
+const MOTIS_HEADERS = {
+  "User-Agent": "TimeTransit/1.0 (local transit explorer)",
+};
+// W1: single-blob KV state sync (mirrors the client-side localStorage shape).
+const STATE_KEY = "state:v1";
+const EMPTY_STATE = {
+  bookmarks: [],
+  favoriteLines: [],
+  recentSearches: [],
+  updatedAt: 0,
+};
 
 // STAGE-0: LLM prompts and JSON schemas live here — never client-supplied.
 const PROMPTS = {
@@ -123,7 +137,11 @@ function geminiSchema(node) {
 
 // STAGE-0: in-memory best-effort rate limits (per isolate).
 const llmIps = new Map(),
-  gmapsIps = new Map();
+  gmapsIps = new Map(),
+  stateIps = new Map(),
+  boardIps = new Map(),
+  nearbyIps = new Map(),
+  planIps = new Map();
 let llmDay = { key: "", count: 0 },
   gmapsMonth = { key: "", count: 0 };
 function bucket(map, key, max, windowMs) {
@@ -508,6 +526,330 @@ async function events(env, cors, url, ip) {
   return Response.json({ events: list, sources }, { headers: cors });
 }
 
+// ---- W1: KV state sync + MOTIS proxies ----
+
+const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+const isStr = (v) => typeof v === "string" && !!v;
+const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+const bearer = (request) => {
+  const h = request.headers.get("Authorization") || "";
+  return h.startsWith("Bearer ") ? h.slice(7).trim() : "";
+};
+const limited = (retry, cors) =>
+  Response.json(
+    { error: "Rate limited" },
+    { status: 429, headers: { ...cors, "Retry-After": String(retry) } },
+  );
+
+// Mirrors contracts.ts: SavedPlace / FavoriteLine / RecentSearch.
+const validBookmark = (b) =>
+  isObj(b) &&
+  isStr(b.id) &&
+  isStr(b.label) &&
+  ["home", "work", "gym", "pin"].includes(b.icon) &&
+  isNum(b.lat) &&
+  isNum(b.lon) &&
+  isNum(b.updatedAt);
+const validFavorite = (f) => isObj(f) && isStr(f.routeId) && isStr(f.shortName);
+const validRecent = (r) =>
+  isObj(r) && isStr(r.id) && isStr(r.label) && isNum(r.ts);
+
+// GET/PUT a single JSON blob at state:v1. Bearer TT_SYNC_TOKEN required.
+async function state(request, env, cors, ip) {
+  if (!env.TT_SYNC_TOKEN || !env.TT_STATE_KV)
+    return Response.json(
+      { error: "sync not configured" },
+      { status: 503, headers: cors },
+    );
+  if (bearer(request) !== env.TT_SYNC_TOKEN)
+    return Response.json(
+      { error: "unauthorized" },
+      { status: 401, headers: cors },
+    );
+  const retry = bucket(stateIps, ip, 30, 60000);
+  if (retry) return limited(retry, cors);
+  if (request.method === "GET") {
+    const stored = await env.TT_STATE_KV.get(STATE_KEY, "json");
+    return Response.json(isObj(stored) ? stored : EMPTY_STATE, {
+      headers: cors,
+    });
+  }
+  let body = null;
+  try {
+    body = await request.json();
+  } catch {
+    /* falls through to 400 */
+  }
+  if (!isObj(body))
+    return Response.json(
+      { error: "JSON object body required" },
+      { status: 400, headers: cors },
+    );
+  const { bookmarks, favoriteLines, recentSearches, updatedAt } = body;
+  if (
+    !Array.isArray(bookmarks) ||
+    bookmarks.length > 4 ||
+    bookmarks.some((b) => !validBookmark(b))
+  )
+    return Response.json(
+      {
+        error:
+          "bookmarks must be an array of at most 4 {id,label,icon,lat,lon,updatedAt}",
+      },
+      { status: 400, headers: cors },
+    );
+  if (
+    !Array.isArray(favoriteLines) ||
+    favoriteLines.length > 32 ||
+    favoriteLines.some((f) => !validFavorite(f))
+  )
+    return Response.json(
+      {
+        error:
+          "favoriteLines must be an array of at most 32 {routeId,shortName}",
+      },
+      { status: 400, headers: cors },
+    );
+  if (
+    !Array.isArray(recentSearches) ||
+    recentSearches.length > 8 ||
+    recentSearches.some((r) => !validRecent(r))
+  )
+    return Response.json(
+      { error: "recentSearches must be an array of at most 8 {id,label,ts}" },
+      { status: 400, headers: cors },
+    );
+  if (!isNum(updatedAt) || updatedAt < 0)
+    return Response.json(
+      { error: "updatedAt must be a non-negative number" },
+      { status: 400, headers: cors },
+    );
+  const blob = { bookmarks, favoriteLines, recentSearches, updatedAt };
+  await env.TT_STATE_KV.put(STATE_KEY, JSON.stringify(blob));
+  return Response.json(blob, { headers: cors });
+}
+
+// Earliest-arriving transit option from the origin to each bookmark.
+// Mirrors the client's MOTIS plan params (fromPlace/toPlace/time/arriveBy).
+async function board(cors, request, ip) {
+  const retry = bucket(boardIps, ip, 20, 60000);
+  if (retry) return limited(retry, cors);
+  let body = null;
+  try {
+    body = await request.json();
+  } catch {
+    /* falls through to 400 */
+  }
+  if (
+    !isObj(body) ||
+    !isObj(body.origin) ||
+    !isNum(body.origin.lat) ||
+    !isNum(body.origin.lon)
+  )
+    return Response.json(
+      { error: "origin {lat,lon} required" },
+      { status: 400, headers: cors },
+    );
+  const marks = body.bookmarks;
+  if (
+    !Array.isArray(marks) ||
+    marks.length > 4 ||
+    marks.some(
+      (m) => !isObj(m) || !isStr(m.id) || !isNum(m.lat) || !isNum(m.lon),
+    )
+  )
+    return Response.json(
+      { error: "bookmarks must be an array of at most 4 {id,label,lat,lon}" },
+      { status: 400, headers: cors },
+    );
+  const now = new Date().toISOString();
+  const results = await Promise.allSettled(
+    marks.map(async (m) => {
+      const p = new URLSearchParams({
+        fromPlace: `${body.origin.lat},${body.origin.lon}`,
+        toPlace: `${m.lat},${m.lon}`,
+        time: now,
+        arriveBy: "false",
+        numItineraries: "3",
+      });
+      const r = await fetch(`${MOTIS}/api/v1/plan?${p}`, {
+        headers: MOTIS_HEADERS,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) throw new Error(`motis ${r.status}`);
+      const data = await r.json();
+      const best = [...(data.itineraries || []), ...(data.direct || [])]
+        .filter((i) => isStr(i.startTime) && isStr(i.endTime))
+        .sort((a, b) => (a.endTime < b.endTime ? -1 : 1))[0];
+      if (!best) return null;
+      const summary = (best.legs || [])
+        .map((l) => l.routeShortName || l.headsign || l.mode)
+        .filter(Boolean)
+        .join(" → ");
+      return {
+        id: m.id,
+        label: typeof m.label === "string" ? m.label : "",
+        departISO: best.startTime,
+        arriveISO: best.endTime,
+        durationMin: isNum(best.duration)
+          ? Math.round(best.duration / 60)
+          : Math.round(
+              (Date.parse(best.endTime) - Date.parse(best.startTime)) / 60000,
+            ),
+        summary,
+      };
+    }),
+  );
+  return Response.json(
+    {
+      board: results.map((r) => (r.status === "fulfilled" ? r.value : null)),
+      sources: ["motis"],
+    },
+    { headers: cors },
+  );
+}
+
+// Nearest MOTIS stops in a radius + up to 3 departures each.
+async function nearbyStops(cors, url, ip) {
+  const retry = bucket(nearbyIps, ip, 20, 60000);
+  if (retry) return limited(retry, cors);
+  const rawLat = url.searchParams.get("lat"),
+    rawLon = url.searchParams.get("lon"),
+    lat = Number(rawLat),
+    lon = Number(rawLon);
+  if (
+    rawLat === null ||
+    rawLon === null ||
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lon)
+  )
+    return Response.json(
+      { error: "lat and lon params required" },
+      { status: 400, headers: cors },
+    );
+  let radius = Number(url.searchParams.get("radius"));
+  if (!Number.isFinite(radius) || radius <= 0) radius = 450;
+  radius = Math.min(radius, 2000);
+  const dlat = radius / 111320,
+    dlon = radius / (111320 * Math.cos((lat * Math.PI) / 180) || 1);
+  const p = new URLSearchParams({
+    min: `${lat - dlat},${lon - dlon}`,
+    max: `${lat + dlat},${lon + dlon}`,
+  });
+  let stops;
+  try {
+    const r = await fetch(`${MOTIS}/api/v1/map/stops?${p}`, {
+      headers: MOTIS_HEADERS,
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) throw new Error(`motis ${r.status}`);
+    stops = await r.json();
+  } catch (e) {
+    return Response.json(
+      { error: `upstream request failed (${e.message})` },
+      { status: 502, headers: cors },
+    );
+  }
+  const dist2 = (s) => {
+    const dy = (s.lat - lat) * 111320,
+      dx = (s.lon - lon) * 111320 * Math.cos((lat * Math.PI) / 180);
+    return dx * dx + dy * dy;
+  };
+  const top = (Array.isArray(stops) ? stops : [])
+    .filter((s) => isObj(s) && s.stopId && isNum(s.lat) && isNum(s.lon))
+    .sort((a, b) => dist2(a) - dist2(b))
+    .slice(0, 6);
+  const now = new Date().toISOString();
+  const deps = await Promise.allSettled(
+    top.map(async (s) => {
+      const q = new URLSearchParams({
+        stopId: s.stopId,
+        time: now,
+        n: "4",
+        arriveBy: "false",
+      });
+      const r = await fetch(`${MOTIS}/api/v1/stoptimes?${q}`, {
+        headers: MOTIS_HEADERS,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) return [];
+      const data = await r.json();
+      return (data.stopTimes || [])
+        .filter((t) => isStr(t?.place?.departure))
+        .sort((a, b) => (a.place.departure < b.place.departure ? -1 : 1))
+        .slice(0, 3)
+        .map((t) => ({
+          routeName: t.routeShortName || t.displayName || t.agencyName || "",
+          headsign: typeof t.headsign === "string" ? t.headsign : "",
+          departISO: t.place.departure,
+          realtime: !!t.realTime,
+        }));
+    }),
+  );
+  return Response.json(
+    {
+      stops: top.map((s, i) => ({
+        id: s.stopId,
+        name: s.name || "",
+        lat: s.lat,
+        lon: s.lon,
+        departures: deps[i].status === "fulfilled" ? deps[i].value : [],
+      })),
+    },
+    { headers: cors },
+  );
+}
+
+// JSON-body plan proxy for arrive-by queries. MOTIS on transitous is
+// GET-only (POST /api/v*/plan → 404 upstream), so the JSON body's scalar
+// fields are translated into query params — arriveBy, numItineraries, walk
+// prefs, etc. all pass through 1:1.
+async function planProxy(cors, request, ip) {
+  const retry = bucket(planIps, ip, 30, 60000);
+  if (retry) return limited(retry, cors);
+  let body = null;
+  try {
+    body = await request.json();
+  } catch {
+    /* falls through to 400 */
+  }
+  if (!isObj(body))
+    return Response.json(
+      { error: "JSON object body required" },
+      { status: 400, headers: cors },
+    );
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(body)) {
+    if (
+      typeof v === "string" ||
+      typeof v === "number" ||
+      typeof v === "boolean"
+    )
+      p.set(k, String(v));
+    else
+      return Response.json(
+        { error: `field '${k}' must be a scalar` },
+        { status: 400, headers: cors },
+      );
+  }
+  let up;
+  try {
+    up = await fetch(`${MOTIS}/api/v1/plan?${p}`, {
+      headers: MOTIS_HEADERS,
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (e) {
+    return Response.json(
+      { error: `upstream request failed (${e.message})` },
+      { status: 502, headers: cors },
+    );
+  }
+  return new Response(up.body, {
+    status: up.status,
+    headers: { "Content-Type": "application/json", ...cors },
+  });
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
@@ -518,12 +860,40 @@ export default {
       "Access-Control-Allow-Origin": allowed.includes(origin)
         ? origin
         : allowed[0],
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
     if (request.method === "OPTIONS")
       return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
+    const ip = request.headers.get("CF-Connecting-IP") || "anon";
+    // W1: state sync accepts GET+PUT; the rest of /api/* is POST or GET.
+    if (url.pathname === "/api/state") {
+      if (request.method !== "GET" && request.method !== "PUT")
+        return Response.json(
+          { error: "GET or PUT requests only" },
+          { status: 405, headers: cors },
+        );
+      return state(request, env, cors, ip);
+    }
+    if (url.pathname === "/api/board" || url.pathname === "/api/plan") {
+      if (request.method !== "POST")
+        return Response.json(
+          { error: "POST requests only" },
+          { status: 405, headers: cors },
+        );
+      return url.pathname === "/api/board"
+        ? board(cors, request, ip)
+        : planProxy(cors, request, ip);
+    }
+    if (url.pathname === "/api/nearby") {
+      if (request.method !== "GET")
+        return Response.json(
+          { error: "GET requests only" },
+          { status: 405, headers: cors },
+        );
+      return nearbyStops(cors, url, ip);
+    }
     const post = url.pathname === "/llm"; // STAGE-0: only /llm accepts POST
     if (request.method !== (post ? "POST" : "GET"))
       return Response.json(

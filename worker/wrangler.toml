@@ -5,3 +5,7 @@ compatibility_date = "2025-01-01"
 [vars]
 ALLOWED_ORIGINS = "http://localhost:5173, https://charlesdvaught-hash.github.io"
 LLM_PROVIDERS = "groq,gemini"
+
+[[kv_namespaces]]
+binding = "TT_STATE_KV"
+id = "446d050b6f8a42b1acd7d8ca00214f1c"
