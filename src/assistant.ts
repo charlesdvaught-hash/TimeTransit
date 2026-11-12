@@ -6,7 +6,11 @@ import { distance, type Pin, type Place, type TripChain } from "./core";
 import { time } from "./display";
 import { searchEvents } from "./events";
 
-export type ChatMessage = { role: "user" | "assistant"; content: string };
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  events?: LocalEvent[]; // display-only: matched events render as links
+};
 
 const POSITIONS = new Set(["first", "middle", "last"]);
 const PREFIX: Record<string, string> = {
@@ -148,21 +152,25 @@ export async function resolveEventStops(
   plan: AdventurePlan,
   origin: Place,
   signal?: AbortSignal,
+  seeded: LocalEvent[] = [],
 ): Promise<{ plan: AdventurePlan; events: LocalEvent[] }> {
   const idx = plan.stops
     .map((s, i) => (s.type === "event" ? i : -1))
     .filter((i) => i >= 0);
-  if (!idx.length) return { plan, events: [] };
+  if (!idx.length && !seeded.length) return { plan, events: [] };
   const events: LocalEvent[] = [];
   const stops = [...plan.stops];
   for (const i of idx) {
     const s = stops[i];
-    const candidates = await searchEvents(origin, {
-      start: plan.depart_at,
-      end: plan.return_by,
-      query: s.query,
-      signal,
-    });
+    const candidates = [
+      ...seeded,
+      ...(await searchEvents(origin, {
+        start: plan.depart_at,
+        end: plan.return_by,
+        query: s.query,
+        signal,
+      })),
+    ];
     const best = candidates
       .map((e) => ({ e, score: eventScore(e, s.query, origin) }))
       .sort((a, b) => b.score - a.score)[0];
@@ -186,6 +194,10 @@ export async function resolveEventStops(
       stops[i] = { ...s, type: "category" }; // no match — fall back to a kind
     }
   }
+  // Resolved-link events that no stop matched still surface — the user
+  // pasted them, so they stay visible and clickable in the reply.
+  for (const e of seeded)
+    if (!events.some((x) => x.id === e.id)) events.push(e);
   return { plan: { ...plan, stops }, events };
 }
 

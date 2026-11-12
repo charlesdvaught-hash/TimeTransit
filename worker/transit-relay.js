@@ -597,6 +597,54 @@ async function eventbrite(env, q, start, end) {
       note: e.is_free ? "free" : undefined,
     }));
 }
+// Resolve one public Eventbrite event + its venue into LocalEvent — used
+// when assistant input contains an eventbrite.com/e/... link. Event lookup
+// by id is one of the endpoints that survived the 2019 search shutdown.
+async function ebEvent(env, cors, url, ip) {
+  const retry = bucket(eventsIps, ip, 10, 60000);
+  if (retry)
+    return Response.json(
+      { error: "Rate limited" },
+      { status: 429, headers: { ...cors, "Retry-After": String(retry) } },
+    );
+  const id = (url.searchParams.get("id") || "").replace(/\D/g, "");
+  if (!id || !env.EVENTBRITE_API_KEY)
+    return Response.json(
+      { error: "id param required" },
+      { status: 400, headers: cors },
+    );
+  const h = { Authorization: `Bearer ${env.EVENTBRITE_API_KEY}` };
+  const e = await fetch(`https://www.eventbriteapi.com/v3/events/${id}/`, {
+    headers: h,
+  }).then((r) => (r.ok ? r.json() : null));
+  if (!e?.id)
+    return Response.json(
+      { error: "not found" },
+      { status: 404, headers: cors },
+    );
+  const v = e.venue_id
+    ? await fetch(`https://www.eventbriteapi.com/v3/venues/${e.venue_id}/`, {
+        headers: h,
+      }).then((r) => (r.ok ? r.json() : null))
+    : null;
+  return Response.json(
+    {
+      event: {
+        id: `eb-${e.id}`,
+        title: e.name?.text || "",
+        venue: v?.name || "",
+        lat: Number(v?.latitude || v?.address?.latitude),
+        lon: Number(v?.longitude || v?.address?.longitude),
+        start: e.start?.utc,
+        end: e.end?.utc !== e.start?.utc ? e.end?.utc : undefined,
+        url: e.url,
+        source: "eventbrite",
+        note: e.is_free ? "free" : undefined,
+      },
+    },
+    { headers: cors },
+  );
+}
 async function events(env, cors, url, ip) {
   const retry = bucket(eventsIps, ip, 10, 60000);
   const day = new Date().toISOString().slice(0, 10);
@@ -1027,6 +1075,10 @@ export default {
     if (url.pathname === "/events") {
       const ip = request.headers.get("CF-Connecting-IP") || "anon";
       return events(env, cors, url, ip);
+    }
+    if (url.pathname === "/eb/event") {
+      const ip = request.headers.get("CF-Connecting-IP") || "anon";
+      return ebEvent(env, cors, url, ip);
     }
     let upstream;
     if (url.pathname.startsWith("/gtfsrt/")) {

@@ -84,3 +84,59 @@ describe("searchEvents", () => {
     expect(await searchEvents(origin)).toEqual([]);
   });
 });
+
+describe("eventFromLink", () => {
+  const event = {
+    id: "eb-1994271930027",
+    title: "Powwow 2026",
+    venue: "Heritage Museum of OC",
+    lat: 33.72,
+    lon: -117.91,
+    start: "2026-11-14T18:00:00Z",
+    source: "eventbrite",
+  };
+
+  it("resolves an eventbrite link in free text", async () => {
+    const { eventFromLink } = await load();
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(json({ event }));
+    const out = await eventFromLink(
+      "see https://www.eventbrite.com/e/powwow-2026-tickets-1994271930027 then tacos",
+    );
+    expect(out?.event).toEqual(event);
+    const url = new URL(String(spy.mock.calls[0][0]));
+    expect(url.origin + url.pathname).toBe("https://relay.test/eb/event");
+    expect(url.searchParams.get("id")).toBe("1994271930027");
+  });
+
+  it("detects other Eventbrite TLDs", async () => {
+    const { eventFromLink } = await load();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(json({ event }));
+    const out = await eventFromLink(
+      "https://www.eventbrite.ca/e/craft-night-tickets-2004407608113",
+    );
+    expect(out?.event.id).toBe("eb-1994271930027");
+    expect(out?.link).toContain("eventbrite.ca");
+  });
+
+  it("returns undefined with no link and never fetches", async () => {
+    const { eventFromLink } = await load();
+    const spy = vi.spyOn(globalThis, "fetch");
+    expect(await eventFromLink("lunch then a museum")).toBeUndefined();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("returns undefined on relay errors", async () => {
+    const { eventFromLink } = await load();
+    const spy = vi.spyOn(globalThis, "fetch");
+    spy.mockResolvedValueOnce(json({ error: "not found" }, 404));
+    expect(
+      await eventFromLink("eventbrite.com/e/x-tickets-123456789"),
+    ).toBeUndefined();
+    spy.mockRejectedValueOnce(new Error("offline"));
+    expect(
+      await eventFromLink("eventbrite.com/e/x-tickets-123456789"),
+    ).toBeUndefined();
+  });
+});

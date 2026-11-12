@@ -2067,6 +2067,15 @@ button:hover {
 .adventure-msg.assistant {
   margin-right: 28px;
 }
+.adventure-event {
+  display: block;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #ffffff14;
+}
+.adventure-event a {
+  color: var(--accent);
+}
 .adventure-form {
   display: flex;
   gap: 6px;

@@ -42,3 +42,32 @@ export async function searchEvents(
     return [];
   }
 }
+
+// eventbrite.com/e/...-tickets-123456789 — the event id is the long digit
+// run before the URL's end/terminator. Works across Eventbrite TLDs.
+const EB_LINK = /eventbrite\.[a-z.]+\/e\/[^/\s?#]*?(\d{8,})(?=[/?#\s]|$)/i;
+
+// Pasted an Eventbrite link? Resolve it into a LocalEvent via the relay —
+// swapping the opaque URL for a real title+venue lets the LLM plan around
+// it, and the resolved event seeds resolveEventStops' candidates.
+export async function eventFromLink(
+  text: string,
+  signal?: AbortSignal,
+): Promise<{ event: LocalEvent; link: string } | undefined> {
+  const m = EB_LINK.exec(text);
+  const relay = import.meta.env.VITE_TRANSIT_RELAY;
+  if (!m || !relay || !eventsEnabled) return undefined;
+  try {
+    const r = await fetch(`${relay}/eb/event?id=${m[1]}`, {
+      signal: signal ?? AbortSignal.timeout(5000),
+    });
+    if (!r.ok) {
+      if (r.status >= 500) eventsEnabled = false;
+      return undefined;
+    }
+    const j = await r.json();
+    return j.event?.id ? { event: j.event, link: m[0] } : undefined;
+  } catch {
+    return undefined;
+  }
+}

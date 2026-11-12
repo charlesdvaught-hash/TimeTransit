@@ -11,6 +11,8 @@ import {
   type ChatMessage,
 } from "./assistant";
 import { time } from "./display";
+import { eventFromLink } from "./events";
+import { gmapsUrl } from "./gmaps";
 import type { AdventurePlan } from "./contracts";
 import type { TransitController } from "./useTimeTransit";
 
@@ -56,7 +58,19 @@ export function AdventureAssistant({
     setInput("");
     setBusy(true);
     setLog((l) => [...l, { role: "user", content: text }]);
-    const raw = await adventureQuery(text, history);
+    // Pasted an Eventbrite link? Resolve it to title+venue so the LLM sees
+    // real text, and seed the event into matching below.
+    const eb = await eventFromLink(text).catch(() => undefined);
+    const prompt = eb
+      ? text
+          .replace(
+            eb.link,
+            `${eb.event.title} at ${eb.event.venue || "the venue"}`,
+          )
+          .replace(/\s+/g, " ")
+          .trim()
+      : text;
+    const raw = await adventureQuery(prompt, history);
     if (!raw) {
       setBusy(false);
       setHistory((h) =>
@@ -72,7 +86,12 @@ export function AdventureAssistant({
       ]);
       return;
     }
-    const { plan, events } = await resolveEventStops(raw, controller.origin);
+    const { plan, events } = await resolveEventStops(
+      raw,
+      controller.origin,
+      undefined,
+      eb ? [eb.event] : [],
+    );
     const wanted = raw.stops.filter((s) => s.type === "event").length;
     const found = events.map(
       (e) =>
@@ -98,7 +117,14 @@ export function AdventureAssistant({
     a.pins.forEach((p, i) => controller.setStopPin(i, p));
     waiting.current = { plan, term: a.term };
     setPending(a.term);
-    setLog((l) => [...l, { role: "assistant", content: summary }]);
+    setLog((l) => [
+      ...l,
+      {
+        role: "assistant",
+        content: summary,
+        events: events.length ? events : undefined,
+      },
+    ]);
     setBusy(false);
   }
   return (
@@ -117,6 +143,29 @@ export function AdventureAssistant({
               <img className="assistant-orb" src={orb} alt="" />
             )}
             {m.content}
+            {m.events?.map((e) => (
+              <span key={e.id} className="adventure-event">
+                <a href={e.url} target="_blank" rel="noreferrer">
+                  {e.title}
+                </a>
+                {e.venue ? (
+                  <>
+                    {" @ "}
+                    <a
+                      href={gmapsUrl({
+                        name: e.venue,
+                        address: `${e.lat},${e.lon}`,
+                      })}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {e.venue}
+                    </a>
+                  </>
+                ) : null}
+                {` · ${time(new Date(e.start))}`}
+              </span>
+            ))}
           </p>
         ))}
         {busy && (
