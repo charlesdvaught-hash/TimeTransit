@@ -10,7 +10,8 @@ import { useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import {
   distance,
-  optimize,
+  optimizeKeystones,
+  type KeystoneRoute,
   rank,
   rankByReachability,
   scanOrder,
@@ -89,6 +90,7 @@ export function useTripSearch({
     [tripBusy, setTripBusy] = useState(false),
     [progress, setProgress] = useState([0, 0]),
     [chain, setChain] = useState<TripChain | null>(null),
+    [chains, setChains] = useState<KeystoneRoute[]>([]),
     [chainWarnings, setChainWarnings] = useState<string[]>([]), // STAGE-3
     [chainNote, setChainNote] = useState(""),
     [interpreted, setInterpreted] = useState<string | null>(null), // STAGE-1
@@ -110,6 +112,7 @@ export function useTripSearch({
     tripAbort.current = null;
     setTripBusy(false);
     setChain(null);
+    setChains([]);
     setChainWarnings([]); // STAGE-3
   }
   function abortExplore() {
@@ -270,6 +273,7 @@ export function useTripSearch({
     setResults([]);
     setSelected(null);
     setChain(null);
+    setChains([]);
     setProgress([0, 0]);
     try {
       const reachPromise = reachable(origin, start, c.signal).catch(
@@ -470,6 +474,7 @@ export function useTripSearch({
     setResults([]);
     setSelected(null);
     setChain(null);
+    setChains([]);
     try {
       const start = departureSnapshot(departure);
       // STAGE-4: warm the scan + places indexes before resolving so segment
@@ -576,7 +581,7 @@ export function useTripSearch({
           );
         } else setChainNote("");
       } else setChainNote("");
-      const trip = await optimize(
+      const routes = await optimizeKeystones(
         origin,
         resolved,
         start,
@@ -587,6 +592,8 @@ export function useTripSearch({
         order,
       );
       if (!c.signal.aborted) {
+        const trip = routes[0].chain;
+        setChains(routes);
         setChain(trip);
         setSelected(null);
         // STAGE-3: live transfer check — first boarding leg per visit vs the
@@ -662,6 +669,7 @@ export function useTripSearch({
     setProgress,
     chain,
     setChain,
+    chains,
     chainWarnings, // STAGE-3
     chainNote,
     interpreted,

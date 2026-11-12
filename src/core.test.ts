@@ -9,6 +9,8 @@ import {
   decode,
   combinations,
   optimize,
+  optimizeKeystones,
+  keystoneIndex,
   editDistance,
   matchCategory,
   rankByReachability,
@@ -325,4 +327,91 @@ it("penalizes low-confidence places when verifiedOnly is on", () => {
       verifiedOnly: true,
     })[0].id,
   ).toBe("mystery");
+});
+
+describe("keystone routes", () => {
+  const m1 = place("museum-a", 41.9);
+  const m2 = place("museum-b", 41.95);
+  const lunches = [
+    place("lunch-1", 41.91),
+    place("lunch-2", 41.92),
+    place("lunch-3", 41.93),
+  ];
+  const stops: Stop[] = [
+    { id: "s-lunch", label: "Lunch", dwell: 30, candidates: lunches },
+    { id: "s-museum", label: "Museum", dwell: 60, candidates: [m1, m2] },
+  ];
+  it("anchors on the rarest stop — fewest candidates wins", () => {
+    expect(keystoneIndex(stops)).toBe(1);
+    expect(keystoneIndex([stops[1], stops[0]])).toBe(0); // keystone travels with its stop
+  });
+  it("returns one route per keystone pick, best duration first", async () => {
+    const routes = await optimizeKeystones(
+      chicago,
+      stops,
+      new Date("2026-11-09T15:00:00Z"),
+      false,
+      async (_a, b, t) => itinerary(b === m1 ? 300 : 900, t),
+    );
+    expect(routes).toHaveLength(2);
+    expect(routes[0].keystone.place).toBe(m1); // shorter leg wins
+    expect(routes[1].keystone.place).toBe(m2);
+    for (const r of routes)
+      expect(r.chain.visits.map((v) => v.stop.id)).toEqual(
+        expect.arrayContaining(["s-lunch", "s-museum"]),
+      );
+  });
+  it("collapses to a single route when the keystone has one candidate", async () => {
+    const one = await optimizeKeystones(
+      chicago,
+      [stops[0], { ...stops[1], candidates: [m1] }],
+      new Date("2026-11-09T15:00:00Z"),
+      false,
+      async (_a, _b, t) => itinerary(300, t),
+    );
+    expect(one).toHaveLength(1);
+    expect(one[0].keystone.place).toBe(m1);
+  });
+  it("skips a keystone whose only combos fail to plan", async () => {
+    const routes = await optimizeKeystones(
+      chicago,
+      stops,
+      new Date("2026-11-09T15:00:00Z"),
+      false,
+      async (_a, b, t) => {
+        if (b === m2) throw new Error("unreachable");
+        return itinerary(300, t);
+      },
+    );
+    expect(routes).toHaveLength(1);
+    expect(routes[0].keystone.place).toBe(m1);
+  });
+  it("a slower route wins when it has no transfers and dense options", async () => {
+    // lunch-4/5 sit next to museum-b: alternates within walking distance of
+    // that route, useless to museum-a's route.
+    const richStops: Stop[] = [
+      {
+        ...stops[0],
+        candidates: [
+          ...lunches,
+          place("lunch-4", 41.951),
+          place("lunch-5", 41.952),
+        ],
+      },
+      stops[1],
+    ];
+    const routes = await optimizeKeystones(
+      chicago,
+      richStops,
+      new Date("2026-11-09T15:00:00Z"),
+      false,
+      async (_a, b, t) => ({
+        ...itinerary(b === m2 ? 500 : 150, t),
+        transfers: b === m1 ? 3 : 0, // museum-a route: 3 transfers inbound
+      }),
+    );
+    expect(routes[0].keystone.place).toBe(m2); // convenient beats faster
+    expect(routes[0].options).toBeGreaterThan(0);
+    expect(routes[1].keystone.place).toBe(m1);
+  });
 });

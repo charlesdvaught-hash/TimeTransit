@@ -479,6 +479,48 @@ export function scanOrder(
     })
     .sort((a, b) => a.total - b.total);
 }
+// Plan every leg of one ranked combo into a TripChain (dwell inserts waits
+// between arrival and the next departure).
+async function planCombo(
+  origin: Place,
+  combo: { stop: Stop; place: Place }[],
+  departure: Date,
+  back: boolean,
+  plan: (a: Place, b: Place, t: Date) => Promise<Itinerary>,
+): Promise<TripChain> {
+  let p = origin,
+    t = new Date(departure);
+  const visits: TripChain["visits"] = [];
+  for (const v of combo) {
+    const trip = await plan(p, v.place, t);
+    visits.push({ ...v, trip });
+    t = new Date(new Date(trip.endTime).getTime() + v.stop.dwell * 60000);
+    p = v.place;
+  }
+  const returnTrip = back ? await plan(p, origin, t) : undefined;
+  return {
+    visits,
+    returnTrip,
+    duration:
+      ((returnTrip ? new Date(returnTrip.endTime) : t).getTime() -
+        departure.getTime()) /
+      1000,
+  };
+}
+function estimateCombo(
+  origin: Place,
+  combo: { stop: Stop; place: Place }[],
+  back: boolean,
+  speed: number,
+) {
+  let p = origin,
+    total = 0;
+  for (const v of combo) {
+    total += (distance(p, v.place) / speed) * 3600 + v.stop.dwell * 60;
+    p = v.place;
+  }
+  return total + (back ? (distance(p, origin) / speed) * 3600 : 0);
+}
 export async function optimize(
   origin: Place,
   stops: Stop[],
@@ -496,20 +538,15 @@ export async function optimize(
     throw new Error("Choose 2–4 stops with at least one candidate each.");
   const pinErr = pinError(stops);
   if (pinErr) throw new Error(pinErr);
-  const estimate = (combo: ReturnType<typeof combinations>[number]) => {
-    let p = origin,
-      total = 0;
-    for (const v of combo) {
-      total += (distance(p, v.place) / speed) * 3600 + v.stop.dwell * 60;
-      p = v.place;
-    }
-    return total + (back ? (distance(p, origin) / speed) * 3600 : 0);
-  };
   const pool = order?.length
     ? order.map((o) => o.combo)
     : combinations(stops)
         .filter((c) => pinsHold(c, stops.length))
-        .sort((a, b) => estimate(a) - estimate(b));
+        .sort(
+          (a, b) =>
+            estimateCombo(origin, a, back, speed) -
+            estimateCombo(origin, b, back, speed),
+        );
   const shortlist = pool.slice(0, 5);
   if (!shortlist.length)
     throw new Error(
@@ -519,22 +556,8 @@ export async function optimize(
   let error: unknown;
   for (const combo of shortlist) {
     try {
-      let p = origin,
-        t = new Date(departure);
-      const visits: TripChain["visits"] = [];
-      for (const v of combo) {
-        const trip = await plan(p, v.place, t);
-        visits.push({ ...v, trip });
-        t = new Date(new Date(trip.endTime).getTime() + v.stop.dwell * 60000);
-        p = v.place;
-      }
-      const returnTrip = back ? await plan(p, origin, t) : undefined;
-      const duration =
-        ((returnTrip ? new Date(returnTrip.endTime) : t).getTime() -
-          departure.getTime()) /
-        1000;
-      if (!best || duration < best.duration)
-        best = { visits, returnTrip, duration };
+      const chain = await planCombo(origin, combo, departure, back, plan);
+      if (!best || chain.duration < best.duration) best = chain;
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") throw e;
       error = e;
@@ -542,4 +565,123 @@ export async function optimize(
   }
   if (!best) throw error || new Error("No complete trip could be routed.");
   return best;
+}
+
+// The keystone is the stop with the FEWEST viable candidates — the rare
+// destination that actually shapes the route (a museum among 20 lunch
+// spots). Ties go to the earlier stop.
+export function keystoneIndex(stops: Stop[]): number {
+  let k = 0;
+  for (let i = 1; i < stops.length; i++)
+    if (stops[i].candidates.length < stops[k].candidates.length) k = i;
+  return k;
+}
+export type KeystoneRoute = {
+  keystone: { stop: Stop; place: Place };
+  chain: TripChain;
+  options: number;
+  score: number;
+};
+// Convenience scoring: a route that serves the whole errand well beats a
+// marginally faster one. Each transfer adds schedule risk beyond its clock
+// cost; each unpicked candidate near a route stop is a real fallback if the
+// pick flops. Options are capped so they can't outweigh a bad route.
+const NEAR_ROUTE_KM = 0.8,
+  TRANSFER_S = 300,
+  OPTION_S = 60,
+  OPTION_CAP = 8;
+export function routeScore(
+  chain: TripChain,
+  stops: Stop[],
+  keystoneStopId: string,
+): { options: number; score: number } {
+  const places = chain.visits.map((v) => v.place);
+  const picked = new Set(places.map((p) => p.id));
+  let options = 0;
+  const counted = new Set<string>();
+  for (const s of stops) {
+    if (s.id === keystoneStopId) continue;
+    for (const c of s.candidates) {
+      if (picked.has(c.id) || counted.has(c.id)) continue;
+      if (places.some((p) => distance(p, c) <= NEAR_ROUTE_KM)) {
+        counted.add(c.id);
+        options++;
+      }
+    }
+  }
+  const transfers =
+    chain.visits.reduce((n, v) => n + v.trip.transfers, 0) +
+    (chain.returnTrip?.transfers ?? 0);
+  return {
+    options,
+    score:
+      chain.duration +
+      transfers * TRANSFER_S -
+      Math.min(options, OPTION_CAP) * OPTION_S,
+  };
+}
+// Same machinery as optimize(), but grouped by which keystone place each
+// route visits — "Museum A trip" vs "Museum B trip" — instead of collapsing
+// to one chain. Up to `maxRoutes` keystones get fully planned, ranked by the
+// whole route's duration so the best-served destination wins (the express-
+// line Michaels beats the closer-but-awkward one).
+export async function optimizeKeystones(
+  origin: Place,
+  stops: Stop[],
+  departure: Date,
+  back: boolean,
+  plan: (a: Place, b: Place, t: Date) => Promise<Itinerary>,
+  speed = 18,
+  order?: { combo: { stop: Stop; place: Place }[]; total: number }[],
+  maxRoutes = 3,
+): Promise<KeystoneRoute[]> {
+  if (
+    stops.length < 2 ||
+    stops.length > 4 ||
+    stops.some((s) => !s.candidates.length)
+  )
+    throw new Error("Choose 2–4 stops with at least one candidate each.");
+  const pinErr = pinError(stops);
+  if (pinErr) throw new Error(pinErr);
+  const pool = order?.length
+    ? order.map((o) => o.combo)
+    : combinations(stops)
+        .filter((c) => pinsHold(c, stops.length))
+        .sort(
+          (a, b) =>
+            estimateCombo(origin, a, back, speed) -
+            estimateCombo(origin, b, back, speed),
+        );
+  const kId = stops[keystoneIndex(stops)].id;
+  // Group ranked combos by keystone pick, preserving pool order
+  const groups = new Map<string, { stop: Stop; place: Place }[][]>();
+  for (const c of pool) {
+    const kv = c.find((v) => v.stop.id === kId);
+    if (!kv) continue;
+    const g = groups.get(kv.place.id);
+    if (g) g.push(c);
+    else groups.set(kv.place.id, [c]);
+  }
+  if (!groups.size)
+    throw new Error(
+      "No trip with distinct places is available. Choose different stops or broaden your searches.",
+    );
+  const routes: KeystoneRoute[] = [];
+  let error: unknown;
+  for (const combos of [...groups.values()].slice(0, maxRoutes)) {
+    try {
+      const chain = await planCombo(origin, combos[0], departure, back, plan);
+      routes.push({
+        keystone: combos[0].find((v) => v.stop.id === kId)!,
+        chain,
+        ...routeScore(chain, stops, kId),
+      });
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") throw e;
+      error = e;
+    }
+  }
+  if (!routes.length)
+    throw error || new Error("No complete trip could be routed.");
+  return routes.sort((a, b) => a.score - b.score);
 }

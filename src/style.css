@@ -1461,6 +1461,75 @@ footer .live-dot {
 .return input {
   accent-color: var(--accent);
 }
+.route-cards {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.route-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #ffffff14;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: #a9bbce;
+  cursor: pointer;
+  text-align: left;
+}
+.route-card.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.route-card small {
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  color: #5e9de3;
+}
+.route-card strong {
+  font-size: 10px;
+  color: #dceaf8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.route-card span {
+  font-size: 10px;
+}
+.chain-alts {
+  margin-top: 6px;
+}
+.chain-alts summary {
+  font-size: 9px;
+  color: #5e9de3;
+  cursor: pointer;
+}
+.chain-alts button {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 5px 8px;
+  border: 1px solid #ffffff14;
+  border-radius: 8px;
+  background: transparent;
+  color: #a9bbce;
+  text-align: left;
+  cursor: pointer;
+}
+.chain-alts button:hover {
+  border-color: var(--accent);
+}
+.chain-alts button strong {
+  display: block;
+  font-size: 10px;
+  color: #dceaf8;
+}
+.chain-alts button small {
+  font-size: 9px;
+}
 .timeline > div {
   border-left: 1px solid #3a6b9f;
   padding: 5px 0 20px 14px;

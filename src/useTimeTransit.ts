@@ -180,6 +180,7 @@ export function useTimeTransit() {
     setProgress,
     chain,
     setChain,
+    chains,
     chainWarnings, // STAGE-3
     chainNote,
     interpreted,
@@ -359,6 +360,7 @@ export function useTimeTransit() {
     setBack,
     chain,
     setChain,
+    chains,
     chainWarnings, // STAGE-3
     chainNote,
     stopPins,

@@ -84,6 +84,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
     progress,
     chain,
     setChain,
+    chains,
     back,
     setBack,
     dwell,
@@ -278,6 +279,17 @@ export function ResultsList({ controller }: { controller: TransitController }) {
     arr[i] = p.name;
     const next = arr.join(" + ");
     setAltOpen(-1);
+    setQuery(next);
+    run(next, pinPlace(p));
+  }
+  // Pick a different candidate for a chain visit — same mechanism as swap()
+  // but keyed off the visit's stop id (seg-N maps back to its input slot).
+  function swapVisit(stopId: string, p: Place) {
+    const i = Number(stopId.slice(4));
+    if (!Number.isInteger(i) || i < 0 || i >= slots.length) return;
+    const arr = [...slots];
+    arr[i] = p.name;
+    const next = arr.join(" + ");
     setQuery(next);
     run(next, pinPlace(p));
   }
@@ -628,23 +640,75 @@ export function ResultsList({ controller }: { controller: TransitController }) {
       </div>
       {busy && <RouteHunt compare={tripBusy} progress={progress} />}
       {chain && chainNote && <p className="chain-note">{chainNote}</p>}
+      {chains.length > 1 && (
+        <div className="route-cards">
+          {chains.map((r, i) => (
+            <button
+              key={r.keystone.place.id}
+              type="button"
+              className={"route-card" + (chain === r.chain ? " on" : "")}
+              onClick={() => setChain(r.chain)}
+            >
+              <small>Route {String.fromCharCode(65 + i)}</small>
+              <strong>{r.keystone.place.name}</strong>
+              <span>{minutes(r.chain.duration)} min</span>
+              {r.options > 0 && (
+                <small>
+                  +{r.options} option{r.options === 1 ? "" : "s"} nearby
+                </small>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
       {chain && (
         <div className="timeline">
-          {chain.visits.map((v, i) => (
-            <div key={v.stop.id}>
-              <small>
-                {time(v.trip.endTime)} · STOP {i + 1}
-              </small>
-              <h3>{v.place.name}</h3>
-              {v.place.address && (
-                <p className="chain-addr">{v.place.address}</p>
-              )}
-              <p>
-                {minutes(v.trip.duration)} min travel · {v.stop.dwell} min stay
-              </p>
-              <RouteChips trip={v.trip} preferences={controller.preferences} />
-            </div>
-          ))}
+          {chain.visits.map((v, i) => {
+            const isKeystone =
+              chains.find((r) => r.chain === chain)?.keystone.stop.id ===
+              v.stop.id;
+            const alts = v.stop.candidates.filter((p) => p.id !== v.place.id);
+            return (
+              <div key={v.stop.id}>
+                <small>
+                  {time(v.trip.endTime)} · STOP {i + 1}
+                  {isKeystone && " · ANCHOR"}
+                </small>
+                <h3>{v.place.name}</h3>
+                {v.place.address && (
+                  <p className="chain-addr">{v.place.address}</p>
+                )}
+                <p>
+                  {minutes(v.trip.duration)} min travel · {v.stop.dwell} min
+                  stay
+                </p>
+                <RouteChips
+                  trip={v.trip}
+                  preferences={controller.preferences}
+                />
+                {alts.length > 0 && (
+                  <details className="chain-alts">
+                    <summary>
+                      {alts.length} other {v.stop.label} option
+                      {alts.length === 1 ? "" : "s"}
+                    </summary>
+                    {alts.slice(0, 6).map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => swapVisit(v.stop.id, p)}
+                      >
+                        <strong>{p.name}</strong>
+                        <small>
+                          {[p.kind, p.address].filter(Boolean).join(" · ")}
+                        </small>
+                      </button>
+                    ))}
+                  </details>
+                )}
+              </div>
+            );
+          })}
           {chain.returnTrip && (
             <div>
               <small>{time(chain.returnTrip.endTime)}</small>
