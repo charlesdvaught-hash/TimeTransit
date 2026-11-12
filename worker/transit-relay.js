@@ -23,8 +23,13 @@ const PROMPTS = {
     "places/brands that must anchor the route, normalized to canonical " +
     "name) and flexible_categories (generic venue types, preserving " +
     "descriptive adjectives and vibes like 'nerdy bar' or 'quiet coffee " +
-    "shop' rather than stripping them to bare nouns). Max 4 total stops. " +
-    "If nothing parseable, return empty arrays.",
+    "shop' rather than stripping them to bare nouns). When a query has " +
+    "descriptive modifiers, vibes, cuisine, price, or rating hints that " +
+    "name indexes may not know ('nerdy', 'budget', 'cozy', 'highly " +
+    "rated'), also return related_terms: 2-4 concrete searchable " +
+    "venue-type expansions preserving the intent (e.g. 'nerdy bar' -> " +
+    "'board game bar', 'arcade bar', 'trivia bar'). Max 4 total stops. " +
+    "If nothing parseable, return empty arrays and related_terms: [].",
   assist:
     "You are the adventure planner for a transit trip planner. Turn the " +
     "request into an ordered multi-stop plan. Each stop: query (search " +
@@ -58,8 +63,14 @@ const PARSE_SCHEMA = {
       },
     },
     flexible_categories: { type: "array", items: { type: "string" } },
+    related_terms: { type: "array", items: { type: "string" } },
   },
-  required: ["original_query", "high_priority_anchors", "flexible_categories"],
+  required: [
+    "original_query",
+    "high_priority_anchors",
+    "flexible_categories",
+    "related_terms",
+  ],
   additionalProperties: false,
 };
 const ADVENTURE_SCHEMA = {

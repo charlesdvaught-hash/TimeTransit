@@ -7,6 +7,7 @@ export type SemanticParseResult = {
     normalized_entity_name: string;
   }[];
   flexible_categories: string[];
+  related_terms: string[];
 };
 export type GooglePlaceDetail = {
   rating?: number;

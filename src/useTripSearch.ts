@@ -216,7 +216,12 @@ export function useTripSearch({
     }
     return next;
   }
-  async function run(term: string, pins = pinned, depth = 0) {
+  async function run(
+    term: string,
+    pins = pinned,
+    depth = 0,
+    expand?: string[],
+  ) {
     if (!term.trim()) return;
     if (!depth) recordRecent(term); // depth>0 = internal semantic re-run
     // STAGE-1: offer free-form sentences to the semantic parser once per run
@@ -226,9 +231,10 @@ export function useTripSearch({
         if (parsed) {
           const next = toTerm(parsed);
           const found = await anchorPins(parsed, pins);
+          expand = parsed.related_terms.slice(0, 3);
           if (next !== term.trim()) {
             setInterpreted(next);
-            return run(next, found, 1);
+            return run(next, found, 1, expand);
           }
           pins = found;
         }
@@ -240,9 +246,9 @@ export function useTripSearch({
       .map((s) => s.trim())
       .filter(Boolean);
     if (segments.length >= 2) return runTrip(term, segments, pins);
-    return runExplore(term, pins);
+    return runExplore(term, pins, expand);
   }
-  async function runExplore(term: string, pins = pinned) {
+  async function runExplore(term: string, pins = pinned, expand?: string[]) {
     const start = departureSnapshot(departure);
     exploreAbort.current?.abort();
     invalidateTrip();
@@ -264,10 +270,23 @@ export function useTripSearch({
       loadPlaces();
       const candidates = pins[term.trim().toLowerCase()]
         ? [pins[term.trim().toLowerCase()]]
-        : [
-            ...searchPlaces(term, origin),
-            ...(await search(term, origin, c.signal)),
-          ];
+        : await (async () => {
+            const terms = [term, ...(expand ?? []).slice(0, 3)];
+            const seen = new Set<string>();
+            const remote = (
+              await Promise.all(terms.map((t) => search(t, origin, c.signal)))
+            ).flat();
+            return [
+              ...terms.flatMap((t) => searchPlaces(t, origin)),
+              ...remote,
+            ].filter((p) => {
+              const k =
+                p.id ?? `${p.name.toLowerCase()}|${p.lat}|${p.lon}`;
+              if (seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            });
+          })();
       if (c.signal.aborted) return;
       const stops = await Promise.race([
         reachPromise,

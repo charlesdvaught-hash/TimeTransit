@@ -45,13 +45,25 @@ export function validateParse(
       if (typeof c !== "string" || !c.trim())
         errors.push(`flexible_categories[${i}] must be a non-empty string`);
     });
+  if (
+    o.related_terms !== undefined &&
+    (!Array.isArray(o.related_terms) ||
+      o.related_terms.some((t) => typeof t !== "string"))
+  )
+    errors.push("related_terms must be an array of strings");
   const total =
     (Array.isArray(anchors) ? anchors.length : 0) +
     (Array.isArray(cats) ? cats.length : 0);
   if (!total)
     errors.push("high_priority_anchors and flexible_categories are both empty");
   else if (total > 4) errors.push("anchors + categories must total at most 4");
-  return errors.length ? { ok: false, errors } : { ok: true, result: o };
+  const result = {
+    ...o,
+    related_terms: Array.isArray(o.related_terms)
+      ? o.related_terms.filter((t) => typeof t === "string").slice(0, 4)
+      : [],
+  };
+  return errors.length ? { ok: false, errors } : { ok: true, result };
 }
 
 export function toTerm(r: SemanticParseResult): string {
