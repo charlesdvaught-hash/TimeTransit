@@ -7,7 +7,6 @@ import {
   rankByReachability,
   scanOrder,
   type Itinerary,
-  type Leg,
   type Pin,
   type Place,
   type ReachableStop,
@@ -27,31 +26,17 @@ import { loadPlaces, placesInCorridor, searchPlaces } from "./places";
 import { observation } from "./reliability";
 import { addObservations } from "./reliabilityStore";
 import {
-  departuresNear,
   liveDepartures as fetchLiveDepartures,
   transferViolations,
   type LiveDeparture,
-  type NearbyDeparture,
 } from "./transit";
 import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
 import { geolocationGranted, useUserPosition } from "./useUserPosition";
-import {
-  readBookmarks,
-  readCachedPlan,
-  readFavoriteLines,
-  readRecentSearches,
-  writeBookmarks,
-  writeCachedPlan,
-  writeFavoriteLines,
-  writeRecentSearches,
-} from "./storage";
-import type {
-  CachedPlan,
-  FavoriteLine,
-  RecentSearch,
-  SavedPlace,
-} from "./contracts";
-import { syncConfigured, syncState, type SyncState } from "./syncClient"; // WAVE-2
+import { useSavedPlaces } from "./useSavedPlaces"; // WAVE-1
+import { useRecentSearches } from "./useRecentSearches"; // WAVE-1
+import { useFavorites } from "./useFavorites"; // WAVE-2
+import { useSyncPush } from "./useSyncPush"; // WAVE-2
+import { offline, useTripCache } from "./useTripCache"; // WAVE-2
 import { parseShareLink } from "./shareUtils";
 import {
   applyTheme,
@@ -108,12 +93,6 @@ export function useTimeTransit() {
     [interpreted, setInterpreted] = useState<string | null>(null), // STAGE-1
     [locating, setLocating] = useState(false),
     [gpsOn, setGpsOn] = useState(false),
-    [bookmarks, setBookmarks] = useState<SavedPlace[]>(readBookmarks),
-    [recents, setRecents] = useState<RecentSearch[]>(readRecentSearches),
-    [board, setBoard] = useState<
-      { place: SavedPlace; trip: Itinerary | null }[]
-    >([]),
-    [nearbyNow, setNearbyNow] = useState<NearbyDeparture[]>([]),
     [timeMode, updateTimeMode] = useState<"now" | "depart" | "arrive">("now"),
     [liveDepartures, setLiveDepartures] = useState<
       Record<number, LiveDeparture>
@@ -129,10 +108,8 @@ export function useTimeTransit() {
       }[];
     } | null>(null),
     // WAVE-2
-    [favorites, setFavorites] = useState<FavoriteLine[]>(readFavoriteLines),
     [alerts, setAlerts] = useState<ServiceAlert[]>([]),
-    [ridePois, setRidePois] = useState<Place[]>([]),
-    [offlineCache, setOfflineCache] = useState<CachedPlan | null>(null);
+    [ridePois, setRidePois] = useState<Place[]>([]);
   function invalidateTrip() {
     tripAbort.current?.abort();
     tripAbort.current = null;
@@ -244,112 +221,42 @@ export function useTimeTransit() {
 
   // Wave-1: saved places, departures board, recents, arrive-by mode.
   const arriveBy = timeMode === "arrive";
-  function upsertBookmark(
-    icon: SavedPlace["icon"],
-    place: Place,
-    label?: string,
-  ) {
-    setBookmarks((prev) => {
-      const next = prev.filter((b) => b.icon !== icon);
-      next.push({
-        id: `bm-${icon}`,
-        label:
-          label?.trim() ||
-          (icon === "pin" ? place.name : icon[0].toUpperCase() + icon.slice(1)),
-        icon,
-        lat: place.lat,
-        lon: place.lon,
-        address: place.address,
-        updatedAt: Date.now(),
-      });
-      writeBookmarks(next);
-      pushSync({ bookmarks: next });
-      return next;
-    });
-  }
-  function removeBookmark(id: string) {
-    setBookmarks((prev) => {
-      const next = prev.filter((b) => b.id !== id);
-      writeBookmarks(next);
-      pushSync({ bookmarks: next });
-      return next;
-    });
-  }
-  function renameBookmark(id: string, label: string) {
-    setBookmarks((prev) => {
-      const next = prev.map((b) =>
-        b.id === id ? { ...b, label: label.trim() || b.label } : b,
-      );
-      writeBookmarks(next);
-      pushSync({ bookmarks: next });
-      return next;
-    });
-  }
-  // exact coords — the pin mechanism skips place search entirely
-  function planToBookmark(b: SavedPlace) {
-    const place: Place = { id: b.id, name: b.label, lat: b.lat, lon: b.lon };
-    run(b.label, { ...pinned, [b.label.toLowerCase()]: place });
-  }
-  function recordRecent(term: string) {
-    const label = term.trim();
-    if (!label || label.length > 40) return;
-    const next = [
-      { id: label.toLowerCase(), label, ts: Date.now() },
-      ...readRecentSearches().filter((r) => r.id !== label.toLowerCase()),
-    ].slice(0, 8);
-    writeRecentSearches(next);
-    setRecents(next);
-    pushSync({ recentSearches: next });
-  }
-  // WAVE-2: favorite transit lines — a star badge on journey legs;
-  // localStorage first, optional worker sync when configured
-  const favKey = (l: Leg) => l.routeId || l.routeShortName || l.mode;
-  function isFavorite(leg: Leg) {
-    return favorites.some((f) => f.routeId === favKey(leg));
-  }
-  function toggleFavorite(leg: Leg) {
-    const routeId = favKey(leg);
-    setFavorites((prev) => {
-      const next = prev.some((f) => f.routeId === routeId)
-        ? prev.filter((f) => f.routeId !== routeId)
-        : [
-            ...prev,
-            {
-              routeId,
-              agencyId: leg.agencyId,
-              shortName: leg.routeShortName || leg.mode,
-              color: leg.routeColor,
-            },
-          ].slice(0, 32);
-      writeFavoriteLines(next);
-      pushSync({ favoriteLines: next });
-      return next;
-    });
-  }
-  // WAVE-2: worker sync — last-write-wins on the whole blob. localStorage
-  // is the source of truth; a newer remote blob is adopted wholesale.
-  function pushSync(
-    patch: Partial<
-      Pick<SyncState, "bookmarks" | "favoriteLines" | "recentSearches">
-    > = {},
-  ) {
-    if (!syncConfigured()) return;
-    const local: SyncState = {
-      bookmarks: patch.bookmarks ?? bookmarks,
-      favoriteLines: patch.favoriteLines ?? favorites,
-      recentSearches: patch.recentSearches ?? recents,
-      updatedAt: Date.now(),
-    };
-    syncState(local).then((merged) => {
-      if (!merged || merged.updatedAt <= local.updatedAt) return;
-      setBookmarks(merged.bookmarks);
-      writeBookmarks(merged.bookmarks);
-      setFavorites(merged.favoriteLines);
-      writeFavoriteLines(merged.favoriteLines);
-      setRecents(merged.recentSearches);
-      writeRecentSearches(merged.recentSearches);
-    });
-  }
+  const sync = useSyncPush();
+  const { recents, setRecents, recordRecent } = useRecentSearches({
+    pushSync: sync.pushSync,
+  });
+  const { favorites, setFavorites, isFavorite, toggleFavorite } = useFavorites({
+    pushSync: sync.pushSync,
+  });
+  const {
+    bookmarks,
+    setBookmarks,
+    board,
+    nearbyNow,
+    upsertBookmark,
+    removeBookmark,
+    renameBookmark,
+    planToBookmark,
+  } = useSavedPlaces({
+    origin,
+    departure,
+    timeMode,
+    preferences,
+    arriveBy,
+    pinned,
+    run,
+    pushSync: sync.pushSync,
+  });
+  // link() re-binds every render so pushSync merges patches over (and
+  // adopts remote blobs into) the latest committed slices
+  sync.link({
+    bookmarks,
+    setBookmarks,
+    favorites,
+    setFavorites,
+    recents,
+    setRecents,
+  });
   // WAVE-2: GTFS-RT service alerts — session-cached ~5 min, silent on any
   // failure, so rows just render without badges when the feed is absent
   useEffect(() => {
@@ -364,73 +271,18 @@ export function useTimeTransit() {
       live = false;
     };
   }, [selected, nearbyNow.length]);
-  const offline = () =>
-    typeof navigator === "undefined" || navigator.onLine === false;
-  function restoreCachedPlan() {
-    const cached = readCachedPlan();
-    const rows = (cached?.results ?? []) as Result[];
-    if (!cached || !rows.length) return false;
-    setResults(rows);
-    setSelected(rows[0]);
-    setOfflineCache(cached);
-    return true;
-  }
-  useEffect(() => {
-    if (offline()) restoreCachedPlan();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-only
-  }, []);
-  // departures board: one fastest plan per bookmark, refreshed when the
-  // origin or the bookmark list changes (debounced + abortable)
-  useEffect(() => {
-    if (!bookmarks.length) {
-      setBoard([]);
-      return;
-    }
-    const c = new AbortController();
-    const timer = setTimeout(() => {
-      const at = departureSnapshot(departure);
-      Promise.all(
-        bookmarks.map(async (b) => {
-          try {
-            const trip = await plan(
-              origin,
-              { id: b.id, name: b.label, lat: b.lat, lon: b.lon },
-              at,
-              c.signal,
-              preferences,
-              undefined,
-              arriveBy,
-            );
-            return { place: b, trip };
-          } catch {
-            return { place: b, trip: null };
-          }
-        }),
-      ).then((rows) => {
-        if (!c.signal.aborted) setBoard(rows);
-      });
-    }, 350);
-    return () => {
-      clearTimeout(timer);
-      c.abort();
-    };
-  }, [origin.lat, origin.lon, bookmarks, departure, timeMode]);
-  // "Nearby now": next departures around the origin — self-disables
-  // without a Transit key/relay, so it just stays empty there
-  useEffect(() => {
-    const c = new AbortController();
-    const timer = setTimeout(() => {
-      departuresNear(origin, c.signal)
-        .then((d) => {
-          if (!c.signal.aborted) setNearbyNow(d);
-        })
-        .catch(() => {});
-    }, 600);
-    return () => {
-      clearTimeout(timer);
-      c.abort();
-    };
-  }, [origin.lat, origin.lon]);
+  const { offlineCache, setOfflineCache, restoreCachedPlan } = useTripCache({
+    selected,
+    liveChoice,
+    chain,
+    query,
+    origin,
+    arriveBy,
+    departure,
+    results,
+    setResults,
+    setSelected,
+  });
   // permission already granted (returning user)? start the idle watch
   // at boot without a tap; Safari lacks the query and just skips this.
   useEffect(() => {
@@ -953,19 +805,6 @@ export function useTimeTransit() {
     ? new Date(Date.parse(trip.endTime) + delay * 1000).toISOString()
     : null;
   const total = chain?.duration || (trip ? trip.duration + delay : undefined);
-  // WAVE-2: snapshot the displayed journey so an offline relaunch can
-  // restore it (the last results list + its top pick)
-  useEffect(() => {
-    if (!selected || !trip || chain) return;
-    writeCachedPlan({
-      savedAt: Date.now(),
-      query,
-      origin: { lat: origin.lat, lon: origin.lon, name: origin.name },
-      mode: arriveBy ? "arrive" : "depart",
-      targetTime: departure ? Date.parse(departure) : undefined,
-      results: results.length ? results : [{ place: selected.place, trip }],
-    });
-  }, [selected, trip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     preferences,
