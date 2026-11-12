@@ -7,7 +7,7 @@ compatibility_date = "2025-01-01"
 crons = ["*/5 * * * *"]
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:5173, https://charlesdvaught-hash.github.io"
+ALLOWED_ORIGINS = "http://localhost:5173, https://charlesdvaught-hash.github.io, https://timetransit-site.charlesdvaught-34c.workers.dev"
 LLM_PROVIDERS = "groq,gemini"
 
 [[kv_namespaces]]
