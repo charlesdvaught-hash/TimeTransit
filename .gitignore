@@ -7,3 +7,4 @@ dev-server.log
 scripts/llm-probe.results.json
 test-results/
 playwright-report/
+.wrangler/
