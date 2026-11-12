@@ -426,39 +426,41 @@ export function ResultsList({ controller }: { controller: TransitController }) {
         !selected &&
         !chain &&
         (board.length > 0 || nearbyNow.length > 0) && (
-          <div className="idle-board">
-            {board.find((r) => r.place.icon === "home") && (
-              <button
-                className="get-home"
-                onClick={() =>
-                  planToBookmark(
-                    board.find((r) => r.place.icon === "home")!.place,
-                  )
-                }
-              >
-                <Home size={15} />
-                <strong>Get me home</strong>
-                <span>
-                  {boardEta(board.find((r) => r.place.icon === "home")!.trip)}
-                </span>
-              </button>
-            )}
-            {board
-              .filter((r) => r.place.icon !== "home")
-              .map((r) => {
-                const Icon = boardIcons[r.place.icon];
-                return (
-                  <button
-                    className="board-row"
-                    key={r.place.id}
-                    onClick={() => planToBookmark(r.place)}
-                  >
-                    <Icon size={14} />
-                    <span className="board-label">{r.place.label}</span>
-                    <span className="board-eta">{boardEta(r.trip)}</span>
-                  </button>
-                );
-              })}
+          <>
+            <div className="board-chips">
+              {board.find((r) => r.place.icon === "home") && (
+                <button
+                  className="get-home"
+                  onClick={() =>
+                    planToBookmark(
+                      board.find((r) => r.place.icon === "home")!.place,
+                    )
+                  }
+                >
+                  <Home size={15} />
+                  <strong>Get me home</strong>
+                  <span>
+                    {boardEta(board.find((r) => r.place.icon === "home")!.trip)}
+                  </span>
+                </button>
+              )}
+              {board
+                .filter((r) => r.place.icon !== "home")
+                .map((r) => {
+                  const Icon = boardIcons[r.place.icon];
+                  return (
+                    <button
+                      className="board-row"
+                      key={r.place.id}
+                      onClick={() => planToBookmark(r.place)}
+                    >
+                      <Icon size={14} />
+                      <span className="board-label">{r.place.label}</span>
+                      <span className="board-eta">{boardEta(r.trip)}</span>
+                    </button>
+                  );
+                })}
+            </div>
             {nearbyNow.length > 0 && (
               <div className="nearby-now">
                 <small>NEARBY NOW</small>
@@ -468,7 +470,8 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                   });
                   return (
                     <p key={i}>
-                      <strong>{d.route}</strong> {d.stopName}
+                      <strong>{d.route}</strong>
+                      <span className="nn-stop">{d.stopName}</span>
                       {!!hit.length && (
                         <span
                           className="alert-flag"
@@ -489,7 +492,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                 })}
               </div>
             )}
-          </div>
+          </>
         )}
       <div className="categories">
         {Object.keys(categories).map((c) => {
