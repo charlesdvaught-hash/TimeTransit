@@ -291,3 +291,24 @@ user.email=...` per commit, and `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env vars
   without the pin it re-searches the term against Photon as before.
 - `MultiStopPlanner.tsx` was removed when `+` syntax replaced the tab UI; don't
   resurrect it — extend the single search box instead.
+
+## Wave-1 additions (Nov 2026)
+
+- `src/storage.ts`: typed localStorage helpers — saved places (≤4, `tt_saved_places_v1`),
+  recent searches (≤8, `tt_recent_searches_v1`), favorite lines (`tt_favorite_lines_v1`),
+  last-plan cache (`tt_last_plan_cache_v1`). localStorage remains the primary store.
+- `src/syncClient.ts`: optional Cloudflare KV mirror. If no sync URL/token is
+  configured the app never calls it; `/api/state` on the relay 503s without the
+  `TT_SYNC_TOKEN` secret — that is expected, not an error.
+- Worker `/api/*` routes: `GET/PUT /api/state` (Bearer-token KV sync),
+  `POST /api/board` (edge-fanned bookmark ETAs), `GET /api/nearby` (stops +
+  departures), `POST /api/plan` (translated to GET upstream; MOTIS is GET-only).
+  KV namespace `TT_STATE_KV` is bound in `worker/wrangler.toml`.
+- `src/useUserPosition.ts`: permission-gated idle `watchPosition` — starts only
+  when geolocation is already granted or after the user taps "Use my location".
+- `MapLayer.tsx` renders the user puck/accuracy/heading layers plus the
+  free→center→heading follow FAB and the minimized riding view (dark matte,
+  basemap layers hidden by the `APP_LAYER_PREFIXES` allowlist — new app layers
+  must use one of those prefixes or be added to it).
+- Saved places board / Get-me-home / recents / share links / Arrive-by live in
+  `Panel.tsx` + `ResultsList.tsx`; `arriveBy` is threaded through `api.plan`.
