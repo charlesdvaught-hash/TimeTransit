@@ -31,6 +31,7 @@ import {
   type LiveDeparture,
 } from "./transit";
 import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
+import { geolocationGranted, useUserPosition } from "./useUserPosition";
 import {
   applyTheme,
   loadOrigin,
@@ -85,6 +86,7 @@ export function useTimeTransit() {
     [originOptions, setOriginOptions] = useState<Place[]>([]),
     [interpreted, setInterpreted] = useState<string | null>(null), // STAGE-1
     [locating, setLocating] = useState(false),
+    [gpsOn, setGpsOn] = useState(false),
     [liveDepartures, setLiveDepartures] = useState<
       Record<number, LiveDeparture>
     >({}),
@@ -180,6 +182,7 @@ export function useTimeTransit() {
     navigator.geolocation.getCurrentPosition(
       (p) => {
         setLocating(false);
+        setGpsOn(true); // permission just granted — start the idle watch
         changeOrigin({
           id: "gps",
           name: "Your location",
@@ -200,6 +203,18 @@ export function useTimeTransit() {
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
     );
   }
+  // permission already granted (returning user)? start the idle watch
+  // at boot without a tap; Safari lacks the query and just skips this.
+  useEffect(() => {
+    let live = true;
+    geolocationGranted().then((ok) => {
+      if (ok && live) setGpsOn(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const userPosition = useUserPosition(gpsOn);
   useEffect(() => applyTheme(preferences), [preferences]);
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 15000);
@@ -681,6 +696,8 @@ export function useTimeTransit() {
     setPreferences,
     origin,
     setOrigin,
+    userPosition,
+    gpsOn,
     query,
     setQuery,
     results,

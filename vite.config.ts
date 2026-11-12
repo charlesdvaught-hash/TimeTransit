@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig, loadEnv } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 export default defineConfig(({ mode }) => {
@@ -86,6 +87,8 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
+    // Playwright specs live under tests/e2e — vitest is src unit tests only
+    test: { exclude: ["tests/e2e/**", "**/node_modules/**"] },
     server: {
       proxy: {
         "/transit": {

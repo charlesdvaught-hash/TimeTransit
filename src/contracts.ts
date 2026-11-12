@@ -26,6 +26,48 @@ export type LocalEvent = {
   source: "seatgeek" | "lacity" | "santamonica" | "mobilizon";
   note?: string; // e.g. price hint, "Free", organizer
 };
+// Wave-0: saved places, recents, favorites, plan cache, GPS follow mode.
+export type SavedPlace = {
+  id: string;
+  label: string;
+  icon: "home" | "work" | "gym" | "pin";
+  lat: number;
+  lon: number;
+  address?: string;
+  updatedAt: number;
+};
+export type RecentSearch = {
+  id: string;
+  label: string;
+  lat?: number;
+  lon?: number;
+  ts: number;
+};
+export type FavoriteLine = {
+  routeId: string;
+  agencyId?: string;
+  shortName: string;
+  color?: string;
+};
+export type CachedPlan = {
+  savedAt: number;
+  query: string;
+  origin: { lat: number; lon: number; name: string };
+  mode: "depart" | "arrive";
+  targetTime?: number;
+  results: unknown[];
+  alerts?: unknown[];
+};
+export type GpsFollowMode = "free" | "center" | "heading";
+export type UserPosition = {
+  lat: number;
+  lon: number;
+  accuracy?: number;
+  heading?: number | null;
+  speed?: number | null;
+  t: number;
+};
+
 export type AdventurePlan = {
   stops: {
     query: string;
