@@ -134,6 +134,62 @@ select option {
   background: #17293d;
   color: white;
 }
+.follow-fab {
+  position: fixed;
+  bottom: 64px;
+  right: 24px;
+  z-index: 4;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #ffffff1a;
+  border-radius: 50%;
+  background: rgb(var(--pane-rgb) / var(--pane-alpha-strong));
+  color: #cfe2f5;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 6px 18px #0006;
+  transition: 0.2s;
+}
+.follow-fab:hover {
+  color: white;
+}
+.follow-fab.center,
+.follow-fab.heading {
+  background: linear-gradient(160deg, #2f89f2, #1c60b4);
+  color: white;
+  box-shadow: 0 3px 14px #2f8bff44;
+}
+.riding-toggle {
+  position: fixed;
+  top: 86px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid #ffffff1a;
+  border-radius: 11px;
+  background: rgb(var(--pane-rgb) / var(--pane-alpha-strong));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 8px 24px #0006;
+}
+.riding-toggle button {
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 10px;
+  letter-spacing: 0.2px;
+  color: #90a6bd;
+  transition: 0.2s;
+}
+.riding-toggle button.active {
+  background: linear-gradient(160deg, #2f89f2, #1c60b4);
+  color: white;
+  box-shadow: 0 3px 14px #2f8bff44;
+}
 .maplibregl-ctrl-attrib.maplibregl-compact {
   background: #0b141dcc;
   color: #9fb2c7;
@@ -1525,6 +1581,13 @@ button:hover {
   }
   .map-controls button:not(:last-child) {
     display: none;
+  }
+  .follow-fab {
+    bottom: calc(54vh + 76px);
+    right: 12px;
+  }
+  .riding-toggle {
+    top: 74px;
   }
   .hud {
     width: auto;

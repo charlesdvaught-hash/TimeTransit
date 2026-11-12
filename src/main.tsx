@@ -12,7 +12,11 @@ function App() {
   const { providers, now } = controller;
   return (
     <>
-      <MapLayer controller={controller} />
+      <MapLayer
+        controller={controller}
+        userPosition={controller.userPosition}
+        ridingView={controller.gpsOn && !!controller.trip}
+      />
       <header>
         <a className="brand" href="#">
           <span className="brand-icon">

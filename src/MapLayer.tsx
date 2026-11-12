@@ -1,4 +1,13 @@
-import { Crosshair, Minus, MoonStar, Plus, Satellite } from "lucide-react";
+import {
+  Compass,
+  Crosshair,
+  Locate,
+  Minus,
+  MoonStar,
+  Navigation,
+  Plus,
+  Satellite,
+} from "lucide-react";
 import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { useEffect, useRef, useState } from "react";
@@ -21,9 +30,116 @@ import {
 import { hasSavedOrigin } from "./preferences";
 import { GmapsLink } from "./GmapsLink";
 import type { Place } from "./core";
+import type { GpsFollowMode, UserPosition } from "./contracts";
 import type { TransitController } from "./useTimeTransit";
 maplibregl.setWorkerUrl(workerUrl);
-export function MapLayer({ controller }: { controller: TransitController }) {
+
+// Every layer id the app itself draws on top of the basemap. The riding
+// view hides anything NOT in this list (i.e. basemap chrome: roads,
+// labels, imagery) so the route floats on a dark matte.
+const MATTE_LAYER = "riding-matte";
+const APP_LAYER_PREFIXES = [
+  "ambient-",
+  "network-",
+  "route-",
+  "user-",
+  MATTE_LAYER,
+];
+const isAppLayer = (id: string) =>
+  APP_LAYER_PREFIXES.some((p) => id.startsWith(p) || id === p);
+const USER_LAYERS = [
+  "user-accuracy-circle",
+  "user-heading-cone",
+  "user-puck-dot",
+];
+
+const METERS_PER_DEG_LAT = 111320;
+// destination point `meters` away along `bearing` (deg, 0 = north)
+function destination(
+  lon: number,
+  lat: number,
+  bearing: number,
+  meters: number,
+): [number, number] {
+  const rad = (bearing * Math.PI) / 180;
+  const dLat = (Math.cos(rad) * meters) / METERS_PER_DEG_LAT;
+  const dLon =
+    (Math.sin(rad) * meters) /
+    (METERS_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180));
+  return [lon + dLon, lat + dLat];
+}
+function ring(
+  lon: number,
+  lat: number,
+  meters: number,
+  steps = 48,
+): [number, number][] {
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= steps; i++)
+    pts.push(destination(lon, lat, (i / steps) * 360, meters));
+  return pts;
+}
+// puck FeatureCollection: meter-sized accuracy ring + heading cone
+// polygons + the dot point, so they scale correctly at every zoom.
+function userFeatures(p: UserPosition): GeoJSON.Feature[] {
+  const features: GeoJSON.Feature[] = [];
+  if (p.accuracy && p.accuracy > 0)
+    features.push({
+      type: "Feature",
+      properties: { part: "accuracy" },
+      geometry: {
+        type: "Polygon",
+        coordinates: [ring(p.lon, p.lat, p.accuracy)],
+      },
+    });
+  if (Number.isFinite(p.heading)) {
+    const r = Math.max(26, (p.accuracy ?? 0) * 0.6);
+    const coords: [number, number][] = [[p.lon, p.lat]];
+    for (let a = -32; a <= 32; a += 8)
+      coords.push(destination(p.lon, p.lat, p.heading! + a, r));
+    coords.push([p.lon, p.lat]);
+    features.push({
+      type: "Feature",
+      properties: { part: "cone" },
+      geometry: { type: "Polygon", coordinates: [coords] },
+    });
+  }
+  features.push({
+    type: "Feature",
+    properties: { part: "dot" },
+    geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+  });
+  return features;
+}
+
+// small white chevron for walk-leg direction ticks — icon (not text)
+// because the satellite style ships no glyph PBFs.
+function chevronImage(size = 22): ImageData {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const s = size;
+  ctx.lineWidth = s * 0.16;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "#eef7ff";
+  ctx.beginPath();
+  ctx.moveTo(s * 0.3, s * 0.18);
+  ctx.lineTo(s * 0.72, s * 0.5);
+  ctx.lineTo(s * 0.3, s * 0.82);
+  ctx.stroke();
+  return ctx.getImageData(0, 0, s, s);
+}
+
+export function MapLayer({
+  controller,
+  userPosition = null,
+  ridingView = false,
+}: {
+  controller: TransitController;
+  userPosition?: UserPosition | null;
+  ridingView?: boolean;
+}) {
   const {
     origin,
     results,
@@ -46,6 +162,10 @@ export function MapLayer({ controller }: { controller: TransitController }) {
   const mapNode = useRef<HTMLDivElement>(null);
   const pickRef = useRef(picking);
   const styled = useRef(false);
+  const [followMode, setFollowMode] = useState<GpsFollowMode>("free");
+  const [peekMap, setPeekMap] = useState(false);
+  const hiddenLayers = useRef<Set<string>>(new Set());
+  const lastFollowAt = useRef(0);
   const [routeCard, setRouteCard] = useState<
     | (Partial<RouteInfo> & {
         name: string;
@@ -138,6 +258,8 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     m.on("error", (e) => {
       if (e.error?.message) setError(`Map: ${e.error.message}`);
     });
+    // any manual pan drops follow mode back to free
+    m.on("dragstart", () => setFollowMode("free"));
     if (!hasSavedOrigin()) locate();
 
     // Ambient route network — one directional line per unique pattern,
@@ -434,6 +556,7 @@ export function MapLayer({ controller }: { controller: TransitController }) {
         "route-casing-walk",
         "route-ride",
         "route-walk",
+        "route-walk-chevrons",
       ])
         if (m.getLayer(id)) m.removeLayer(id);
       if (m.getSource("network")) m.removeSource("network");
@@ -540,6 +663,27 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           "line-width": 4,
           "line-dasharray": [1, 2],
         },
+      });
+      // direction chevrons along walk legs (transit legs stay bold
+      // solids) — icon instead of text since the satellite style has
+      // no glyph source.
+      if (!m.hasImage("walk-chevron"))
+        m.addImage("walk-chevron", chevronImage());
+      m.addLayer({
+        id: "route-walk-chevrons",
+        type: "symbol",
+        source: "route",
+        filter: ["==", "walk", true],
+        layout: {
+          "symbol-placement": "line",
+          "symbol-spacing": 90,
+          "icon-image": "walk-chevron",
+          "icon-size": 0.62,
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+        paint: { "icon-opacity": 0.9 },
       });
       const coords = features.flatMap((f) => f.geometry.coordinates);
       if (coords.length) {
@@ -660,7 +804,152 @@ export function MapLayer({ controller }: { controller: TransitController }) {
     });
     return () => markers.forEach((x) => x.remove());
   }, [hover]);
+  // live user puck — accuracy ring + heading cone + dot, fed by a
+  // single GeoJSON source updated on each fix. Meter-sized polygon
+  // features (not pixel radii) so they scale correctly with zoom.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !userPosition) return;
+    const data = (): GeoJSON.FeatureCollection => ({
+      type: "FeatureCollection",
+      features: userFeatures(userPosition),
+    });
+    const ensure = () => {
+      const src = m.getSource("user") as maplibregl.GeoJSONSource | undefined;
+      if (src) {
+        src.setData(data());
+        return;
+      }
+      if (!m.isStyleLoaded()) return;
+      try {
+        m.addSource("user", { type: "geojson", data: data() });
+        m.addLayer({
+          id: "user-accuracy-circle",
+          type: "fill",
+          source: "user",
+          filter: ["==", "part", "accuracy"],
+          paint: { "fill-color": "#3b9dff", "fill-opacity": 0.14 },
+        });
+        m.addLayer({
+          id: "user-heading-cone",
+          type: "fill",
+          source: "user",
+          filter: ["==", "part", "cone"],
+          paint: { "fill-color": "#7cc4ff", "fill-opacity": 0.4 },
+        });
+        m.addLayer({
+          id: "user-puck-dot",
+          type: "circle",
+          source: "user",
+          filter: ["==", "part", "dot"],
+          paint: {
+            "circle-radius": 7,
+            "circle-color": "#2f9bff",
+            "circle-stroke-width": 2.5,
+            "circle-stroke-color": "#ffffff",
+          },
+        });
+      } catch {
+        /* style mid-load — retried on style.load */
+      }
+    };
+    ensure();
+    m.on("style.load", ensure);
+    return () => {
+      m.off("style.load", ensure);
+    };
+  }, [userPosition]);
+  // drop the puck entirely when the fix stream stops
+  useEffect(() => {
+    const m = map.current;
+    if (!m || userPosition) return;
+    for (const id of USER_LAYERS) if (m.getLayer(id)) m.removeLayer(id);
+    if (m.getSource("user")) m.removeSource("user");
+  }, [userPosition]);
+  // follow FAB behaviour: recenter on each fix (throttled), plus
+  // bearing = heading in "heading" mode.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || followMode === "free" || !userPosition) return;
+    const now = performance.now();
+    if (now - lastFollowAt.current < 1000) return;
+    lastFollowAt.current = now;
+    m.easeTo({
+      center: [userPosition.lon, userPosition.lat],
+      duration: 800,
+      ...(followMode === "heading" && Number.isFinite(userPosition.heading)
+        ? { bearing: userPosition.heading! }
+        : {}),
+    });
+  }, [userPosition, followMode]);
+  // Minimized riding view — hide every non-app layer (basemap chrome)
+  // and paint a dark matte underneath so the route + puck float.
+  // setStyle wipes layer state on basemap change, so re-apply on
+  // style.load; restoring only touches layers we actually hid.
+  const ridingActive = ridingView && !peekMap;
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const apply = () => {
+      const style = m.getStyle();
+      if (!style?.layers?.length) return;
+      try {
+        if (!m.getLayer(MATTE_LAYER))
+          m.addLayer(
+            {
+              id: MATTE_LAYER,
+              type: "background",
+              paint: { "background-color": "#0B0F17" },
+            },
+            style.layers[0].id,
+          );
+        for (const layer of m.getStyle().layers) {
+          if (isAppLayer(layer.id)) continue;
+          if (m.getLayoutProperty(layer.id, "visibility") !== "none") {
+            m.setLayoutProperty(layer.id, "visibility", "none");
+            hiddenLayers.current.add(layer.id);
+          }
+        }
+      } catch {
+        /* style mid-load — retried on style.load */
+      }
+    };
+    const restore = () => {
+      for (const id of hiddenLayers.current) {
+        if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", "visible");
+      }
+      hiddenLayers.current.clear();
+      if (m.getLayer(MATTE_LAYER)) m.removeLayer(MATTE_LAYER);
+    };
+    const onStyleLoad = () => {
+      if (ridingActive) apply();
+    };
+    if (ridingActive) apply();
+    else restore();
+    m.on("style.load", onStyleLoad);
+    return () => {
+      m.off("style.load", onStyleLoad);
+    };
+  }, [ridingActive, basemap]);
+  // reset peek when the riding view goes away
+  useEffect(() => {
+    if (!ridingView) setPeekMap(false);
+  }, [ridingView]);
   const choose = chooseBasemap;
+  const followIcon =
+    followMode === "heading" ? (
+      <Compass size={17} />
+    ) : followMode === "center" ? (
+      <Navigation size={17} />
+    ) : (
+      <Locate size={17} />
+    );
+  const followTitle =
+    followMode === "heading"
+      ? "Following your heading — tap for free pan"
+      : followMode === "center"
+        ? "Following you — tap for heading mode"
+        : "Tap to follow your location";
   return (
     <>
       <div ref={mapNode} className="map" />
@@ -821,6 +1110,43 @@ export function MapLayer({ controller }: { controller: TransitController }) {
           <Crosshair size={16} />
         </button>
       </div>
+      {userPosition && (
+        <button
+          className={`follow-fab ${followMode}`}
+          title={followTitle}
+          aria-label={followTitle}
+          aria-pressed={followMode !== "free"}
+          onClick={() =>
+            setFollowMode((m) =>
+              m === "free" ? "center" : m === "center" ? "heading" : "free",
+            )
+          }
+        >
+          {followIcon}
+        </button>
+      )}
+      {ridingView && (
+        <div
+          className="riding-toggle"
+          role="group"
+          aria-label="Riding map view"
+        >
+          <button
+            className={peekMap ? "active" : ""}
+            aria-pressed={peekMap}
+            onClick={() => setPeekMap(true)}
+          >
+            Full map
+          </button>
+          <button
+            className={!peekMap ? "active" : ""}
+            aria-pressed={!peekMap}
+            onClick={() => setPeekMap(false)}
+          >
+            Route only
+          </button>
+        </div>
+      )}
     </>
   );
 }
