@@ -111,6 +111,60 @@ export async function detailsFor(
   }
 }
 
+export type GmapsCandidate = { place: Place; detail: GooglePlaceDetail };
+// PHASE-B: text search for parsed/vibe queries — returns directly-plannable
+// candidates (coords + rating + price in the widened field mask, one request).
+// Google fields are session-cached; display stays panel-only per terms.
+export async function searchPlaces(
+  query: string,
+  at: { lat: number; lon: number },
+  signal?: AbortSignal,
+): Promise<GmapsCandidate[]> {
+  if (!gmapsConfigured() || !gmapsEnabled) return [];
+  try {
+    const r = await fetch(
+      `${relay()}/gmaps/text?query=${encodeURIComponent(query)}&lat=${at.lat}&lon=${at.lon}`,
+      { signal },
+    );
+    if (r.status === 500) {
+      gmapsEnabled = false;
+      return [];
+    }
+    if (!r.ok) return [];
+    const places = ((await r.json()).places ?? []) as Record<string, unknown>[];
+    const out: GmapsCandidate[] = [];
+    for (const p of places.slice(0, 8)) {
+      const pid = p.id as string;
+      const loc = p.location as { latitude?: number; longitude?: number };
+      if (!pid || typeof loc?.latitude !== "number") continue;
+      const name = (p.displayName as { text?: string })?.text || "Google place";
+      const place: Place = {
+        id: `gmaps-${pid}`,
+        name,
+        lat: loc.latitude,
+        lon: loc.longitude!,
+        address: p.formattedAddress as string | undefined,
+        kind: "google place",
+      };
+      const detail: GooglePlaceDetail = {};
+      if (typeof p.rating === "number") detail.rating = p.rating;
+      if (typeof p.userRatingCount === "number")
+        detail.userRatingCount = p.userRatingCount;
+      const pl = priceLevel(p.priceLevel);
+      if (pl !== undefined) detail.priceLevel = pl;
+      const open = p.currentOpeningHours as { openNow?: boolean };
+      if (typeof open?.openNow === "boolean") detail.openNow = open.openNow;
+      ids[place.id] = pid;
+      details.set(pid, detail);
+      out.push({ place, detail });
+    }
+    saveIds();
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 export async function enrichPlace(
   place: Place,
   origin?: Place,

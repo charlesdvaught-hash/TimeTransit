@@ -28,8 +28,14 @@ const PROMPTS = {
     "name indexes may not know ('nerdy', 'budget', 'cozy', 'highly " +
     "rated'), also return related_terms: 2-4 concrete searchable " +
     "venue-type expansions preserving the intent (e.g. 'nerdy bar' -> " +
-    "'board game bar', 'arcade bar', 'trivia bar'). Max 4 total stops. " +
-    "If nothing parseable, return empty arrays and related_terms: [].",
+    "'board game bar', 'arcade bar', 'trivia bar'). If the query " +
+    "expresses a rating or price intent ('highly rated', 'best', " +
+    "'cheap', 'budget', 'upscale'), set min_rating (1-5; 'highly rated' " +
+    "is ~4.3, 'best'/'top' ~4.5 — never 5 unless 'perfect' is said) " +
+    "and/or " +
+    "max_price (0-4: 0=free 1=cheap 2=moderate 3=expensive 4=luxury); " +
+    "otherwise null. Max 4 total stops. If nothing parseable, return " +
+    "empty arrays, related_terms: [], and null constraints.",
   assist:
     "You are the adventure planner for a transit trip planner. Turn the " +
     "request into an ordered multi-stop plan. Each stop: query (search " +
@@ -64,12 +70,16 @@ const PARSE_SCHEMA = {
     },
     flexible_categories: { type: "array", items: { type: "string" } },
     related_terms: { type: "array", items: { type: "string" } },
+    min_rating: { type: ["number", "null"] },
+    max_price: { type: ["integer", "null"] },
   },
   required: [
     "original_query",
     "high_priority_anchors",
     "flexible_categories",
     "related_terms",
+    "min_rating",
+    "max_price",
   ],
   additionalProperties: false,
 };
@@ -356,7 +366,8 @@ async function gmaps(env, cors, url, ip) {
         headers: {
           "Content-Type": "application/json",
           "X-Goog-Api-Key": env.GMAPS_API_KEY,
-          "X-Goog-FieldMask": "places.id",
+          "X-Goog-FieldMask":
+            "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.priceLevel,places.currentOpeningHours.openNow",
         },
         body: JSON.stringify(body),
       },

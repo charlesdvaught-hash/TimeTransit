@@ -12,6 +12,8 @@ const valid: SemanticParseResult = {
   ],
   flexible_categories: ["coffee shop"],
   related_terms: ["quiet cafe"],
+  min_rating: null,
+  max_price: null,
 };
 
 function llmResponse(body: unknown, status = 200) {

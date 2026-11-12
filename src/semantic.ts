@@ -62,6 +62,8 @@ export function validateParse(
     related_terms: Array.isArray(o.related_terms)
       ? o.related_terms.filter((t) => typeof t === "string").slice(0, 4)
       : [],
+    min_rating: typeof o.min_rating === "number" ? o.min_rating : null,
+    max_price: typeof o.max_price === "number" ? o.max_price : null,
   };
   return errors.length ? { ok: false, errors } : { ok: true, result };
 }

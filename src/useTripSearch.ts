@@ -29,6 +29,7 @@ import { inCoverage, reachableStops, scan } from "./scan";
 import { loadScanIndex } from "./scanData";
 import { fetchTripDelays } from "./gtfsrt"; // WAVE-2
 import { loadPlaces, placesInCorridor, searchPlaces } from "./places";
+import { searchPlaces as gmapsSearchPlaces } from "./gmaps"; // PHASE-B
 import { observation } from "./reliability";
 import { addObservations } from "./reliabilityStore";
 import {
@@ -221,6 +222,7 @@ export function useTripSearch({
     pins = pinned,
     depth = 0,
     expand?: string[],
+    constraints?: { min_rating: number | null; max_price: number | null },
   ) {
     if (!term.trim()) return;
     if (!depth) recordRecent(term); // depth>0 = internal semantic re-run
@@ -232,9 +234,13 @@ export function useTripSearch({
           const next = toTerm(parsed);
           const found = await anchorPins(parsed, pins);
           expand = parsed.related_terms.slice(0, 3);
+          constraints = {
+            min_rating: parsed.min_rating,
+            max_price: parsed.max_price,
+          };
           if (next !== term.trim()) {
             setInterpreted(next);
-            return run(next, found, 1, expand);
+            return run(next, found, 1, expand, constraints);
           }
           pins = found;
         }
@@ -246,9 +252,14 @@ export function useTripSearch({
       .map((s) => s.trim())
       .filter(Boolean);
     if (segments.length >= 2) return runTrip(term, segments, pins);
-    return runExplore(term, pins, expand);
+    return runExplore(term, pins, expand, constraints);
   }
-  async function runExplore(term: string, pins = pinned, expand?: string[]) {
+  async function runExplore(
+    term: string,
+    pins = pinned,
+    expand?: string[],
+    constraints?: { min_rating: number | null; max_price: number | null },
+  ) {
     const start = departureSnapshot(departure);
     exploreAbort.current?.abort();
     invalidateTrip();
@@ -273,12 +284,32 @@ export function useTripSearch({
         : await (async () => {
             const terms = [term, ...(expand ?? []).slice(0, 3)];
             const seen = new Set<string>();
-            const remote = (
-              await Promise.all(terms.map((t) => search(t, origin, c.signal)))
-            ).flat();
+            const parsedQuery =
+              !!expand?.length ||
+              constraints?.min_rating != null ||
+              constraints?.max_price != null;
+            const [remote, gm] = await Promise.all([
+              Promise.all(terms.map((t) => search(t, origin, c.signal))).then(
+                (a) => a.flat(),
+              ),
+              parsedQuery
+                ? gmapsSearchPlaces(term, origin, c.signal)
+                : Promise.resolve([]),
+            ]);
+            const gplaces = gm
+              .filter(
+                (g) =>
+                  (constraints?.min_rating == null ||
+                    (g.detail.rating ?? 0) >= constraints.min_rating) &&
+                  (constraints?.max_price == null ||
+                    g.detail.priceLevel === undefined ||
+                    g.detail.priceLevel <= constraints.max_price),
+              )
+              .map((g) => g.place);
             return [
               ...terms.flatMap((t) => searchPlaces(t, origin)),
               ...remote,
+              ...gplaces,
             ].filter((p) => {
               const k = p.id ?? `${p.name.toLowerCase()}|${p.lat}|${p.lon}`;
               if (seen.has(k)) return false;

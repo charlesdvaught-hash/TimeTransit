@@ -8,6 +8,8 @@ export type SemanticParseResult = {
   }[];
   flexible_categories: string[];
   related_terms: string[];
+  min_rating: number | null;
+  max_price: number | null;
 };
 export type GooglePlaceDetail = {
   rating?: number;
