@@ -22,6 +22,8 @@ const PROMPTS = {
     "only when the request states them; resolve relative times like " +
     "'back by 6' against the 'Current local time' line when present — " +
     "a named weekday means the next future date having that weekday. " +
+    "When a requested time can't be expressed as a date the schema " +
+    "allows, set the field to null — never emit an error object. " +
     "Stops are places only; never emit transit legs or 'home' as stops.",
 };
 const PARSE_SCHEMA = {
@@ -74,14 +76,40 @@ const ADVENTURE_SCHEMA = {
   additionalProperties: false,
 };
 
+// Constrained decoding honors string `pattern`, so the assist schema
+// clamps depart_at/return_by to a rolling window: yesterday (absorbs
+// client-vs-worker timezone skew) through ~62 days out. Stale or
+// far-future dates can't be emitted at the token level.
+function dateWindowPattern(now = new Date()) {
+  const days = [];
+  for (let i = -1; i <= 62; i++)
+    days.push(
+      new Date(now.getTime() + i * 86400000).toISOString().slice(0, 10),
+    );
+  // a bare "T" satisfies ^(dates)T — require HH:MM so the model can't
+  // truncate the timestamp to dodge the constraint
+  return `^(${days.join("|")})T([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$`;
+}
+function assistSchema() {
+  const p = dateWindowPattern();
+  return {
+    ...ADVENTURE_SCHEMA,
+    properties: {
+      ...ADVENTURE_SCHEMA.properties,
+      depart_at: { type: ["string", "null"], pattern: p },
+      return_by: { type: ["string", "null"], pattern: p },
+    },
+  };
+}
+
 // STAGE-0: Gemini takes an OpenAPI-3.0 subset — drop additionalProperties
-// and fold type unions / null enum members.
+// and fold type unions / null enum members; `pattern` is Groq-only.
 function geminiSchema(node) {
   if (Array.isArray(node)) return node.map(geminiSchema);
   if (!node || typeof node !== "object") return node;
   const out = {};
   for (const [k, v] of Object.entries(node)) {
-    if (k === "additionalProperties") continue;
+    if (k === "additionalProperties" || k === "pattern") continue;
     if (k === "type" && Array.isArray(v)) {
       out.type = v.filter((t) => t !== "null")[0] || "string";
     } else if (k === "enum" && Array.isArray(v)) {
@@ -219,7 +247,7 @@ async function llm(request, env, cors) {
       history.map((h) => `${h.role}: ${h.content}`).join("\n");
   if (repair && Array.isArray(repair.errors) && repair.errors.length)
     user += `\n\nPrevious attempt failed validation: ${repair.errors.join("; ")}. Return only valid JSON matching the schema.`;
-  const schema = task === "parse" ? PARSE_SCHEMA : ADVENTURE_SCHEMA;
+  const schema = task === "parse" ? PARSE_SCHEMA : assistSchema();
   const name = task === "parse" ? "semantic_parse" : "adventure_plan";
   const providers = (env.LLM_PROVIDERS || "groq,gemini")
     .split(",")
