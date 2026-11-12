@@ -6,3 +6,7 @@ compatibility_date = "2025-01-01"
 directory = "../dist"
 binding = "ASSETS"
 run_worker_first = true
+
+[[kv_namespaces]]
+binding = "TT_STATE_KV"
+id = "446d050b6f8a42b1acd7d8ca00214f1c"

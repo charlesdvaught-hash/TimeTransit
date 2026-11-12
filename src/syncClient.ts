@@ -44,7 +44,12 @@ export const saveSync = (v: { url: string; token: string }) =>
 
 function config() {
   const { url, token } = readWorkerSync();
-  return url && token ? { url: url.replace(/\/+$/, ""), token } : null;
+  if (url && token) return { url: url.replace(/\/+$/, ""), token };
+  // On the gated Cloudflare site, same-origin /api/state is keyed by the
+  // Access-verified email — sync auto-configures, no manual setup.
+  if (location.hostname === "timetransit-site.charlesdvaught-34c.workers.dev")
+    return { url: location.origin, token: "" };
+  return null;
 }
 export const syncConfigured = () => !!config();
 
