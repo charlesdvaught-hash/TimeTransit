@@ -280,8 +280,7 @@ export function useTripSearch({
               ...terms.flatMap((t) => searchPlaces(t, origin)),
               ...remote,
             ].filter((p) => {
-              const k =
-                p.id ?? `${p.name.toLowerCase()}|${p.lat}|${p.lon}`;
+              const k = p.id ?? `${p.name.toLowerCase()}|${p.lat}|${p.lon}`;
               if (seen.has(k)) return false;
               seen.add(k);
               return true;
