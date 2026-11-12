@@ -244,7 +244,7 @@ export async function fetchAlerts(
   if (alertCache && Date.now() - alertCache.at < 5 * 60 * 1000)
     return alertCache.data;
   try {
-    const r = await fetch(`${base}/alerts`, { signal });
+    const r = await fetch(`${base}/servicealerts`, { signal });
     if (!r.ok) return alertCache?.data ?? [];
     const data = decodeAlerts(new Uint8Array(await r.arrayBuffer()));
     alertCache = { at: Date.now(), data };
