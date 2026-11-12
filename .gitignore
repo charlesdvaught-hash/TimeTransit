@@ -8,3 +8,4 @@ scripts/llm-probe.results.json
 test-results/
 playwright-report/
 .wrangler/
+.dev.vars

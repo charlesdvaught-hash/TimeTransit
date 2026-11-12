@@ -26,7 +26,7 @@ export type LocalEvent = {
   start: string; // ISO local or UTC
   end?: string;
   url?: string;
-  source: "seatgeek" | "lacity" | "santamonica" | "mobilizon";
+  source: "seatgeek" | "lacity" | "santamonica" | "mobilizon" | "eventbrite";
   note?: string; // e.g. price hint, "Free", organizer
 };
 // Wave-0: saved places, recents, favorites, plan cache, GPS follow mode.

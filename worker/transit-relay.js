@@ -531,6 +531,72 @@ async function mobilizon(lat, lon, q, start, end) {
     })
     .filter((e) => Number.isFinite(e.lat) && Number.isFinite(e.lon));
 }
+// Eventbrite v3: public event search was shut down in Dec 2019, but
+// /venues/{id}/events/ is public for any venue — so coverage is a curated
+// list of OC venues. To add one: resolve any of the venue's events via
+// GET /events/{event_id}/ -> venue_id, then GET /venues/{id}/ for coords.
+const EB_VENUES = [
+  // Santa Ana
+  {
+    id: "298598296",
+    name: "Heritage Museum of OC",
+    lat: 33.7207429,
+    lon: -117.9106923,
+  },
+  // Newport Beach
+  { id: "299948946", name: "Mutt Lynch's", lat: 33.6098222, lon: -117.9298659 },
+  // Huntington Beach
+  { id: "299921532", name: "The Circle OC", lat: 33.716183, lon: -117.9730931 },
+  // Costa Mesa
+  {
+    id: "299878560",
+    name: "Crowne Plaza Costa Mesa",
+    lat: 33.6847379,
+    lon: -117.8863201,
+  },
+  // Fullerton
+  { id: "299890229", name: "Casa 723", lat: 33.8636346, lon: -117.9245569 },
+];
+// ~6h cache: N venue calls per /events request would burn quota; event
+// lists change slowly so one refresh serves everyone.
+let ebCache = { at: 0, rows: [] };
+async function eventbrite(env, q, start, end) {
+  if (!env.EVENTBRITE_API_KEY) return [];
+  if (Date.now() - ebCache.at > 6 * 3600e3) {
+    const rows = await Promise.all(
+      EB_VENUES.map((v) =>
+        fetch(
+          `https://www.eventbriteapi.com/v3/venues/${v.id}/events/?status=live`,
+          { headers: { Authorization: `Bearer ${env.EVENTBRITE_API_KEY}` } },
+        )
+          .then((r) => (r.ok ? r.json() : { events: [] }))
+          .then((j) => (j.events || []).map((e) => ({ e, v })))
+          .catch(() => []),
+      ),
+    );
+    ebCache = { at: Date.now(), rows: rows.flat() };
+  }
+  const lo = q.toLowerCase();
+  return ebCache.rows
+    .filter(
+      ({ e }) =>
+        (e.start?.utc || "").slice(0, 19) >= start.slice(0, 19) &&
+        (e.start?.utc || "").slice(0, 19) <= end.slice(0, 19) &&
+        (!lo || (e.name?.text || "").toLowerCase().includes(lo)),
+    )
+    .map(({ e, v }) => ({
+      id: `eb-${e.id}`,
+      title: e.name?.text || "",
+      venue: v.name,
+      lat: v.lat,
+      lon: v.lon,
+      start: e.start?.utc,
+      end: e.end?.utc !== e.start?.utc ? e.end?.utc : undefined,
+      url: e.url,
+      source: "eventbrite",
+      note: e.is_free ? "free" : undefined,
+    }));
+}
 async function events(env, cors, url, ip) {
   const retry = bucket(eventsIps, ip, 10, 60000);
   const day = new Date().toISOString().slice(0, 10);
@@ -566,6 +632,7 @@ async function events(env, cors, url, ip) {
     ["lacity", lacity(q, start, end)],
     ["santamonica", santamonica(q, start, end)],
     ["mobilizon", mobilizon(lat, lon, q, start, end)],
+    ["eventbrite", eventbrite(env, q, start, end)],
   ];
   const settled = await Promise.allSettled(jobs.map(([, j]) => j));
   const sources = jobs.map(([n], i) =>

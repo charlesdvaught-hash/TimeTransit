@@ -1,7 +1,7 @@
 // Events via the relay's /events route — the worker fans out to SeatGeek
-// (keyed, optional), LA + Santa Monica open data, and Mobilizon, then
-// merges into the shared LocalEvent shape. Every failure path returns []
-// so a dead relay or source degrades quietly.
+// (keyed, optional), LA + Santa Monica open data, Mobilizon, and curated
+// Eventbrite venues, then merges into the shared LocalEvent shape. Every
+// failure path returns [] so a dead relay or source degrades quietly.
 import type { LocalEvent } from "./contracts";
 import type { Place } from "./core";
 
