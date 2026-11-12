@@ -12,14 +12,24 @@ import * as maplibregl from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { useEffect, useRef, useState } from "react";
 import { basemapStyles } from "./basemap";
-import { decode } from "./core";
+import { arrowField, loadNetwork, type ArrowField } from "./networkGeo";
 import {
-  advanceArrows,
-  arrowField,
-  arrowImage,
-  loadNetwork,
-  type ArrowField,
-} from "./networkGeo";
+  AMBIENT_HIT_LAYERS,
+  applyRidingView,
+  attachScanRing,
+  clearRidePois,
+  corridorFeatures,
+  ensureUserLayers,
+  followUserCamera,
+  paintAmbient,
+  paintRidePois,
+  paintRoute,
+  pulseNetworkGlow,
+  removeUserLayers,
+  restoreRidingView,
+  routeLineFeatures,
+  tickAmbient,
+} from "./mapLayers";
 import { nearestPlaces } from "./places";
 import {
   departuresNear,
@@ -33,103 +43,6 @@ import type { Place } from "./core";
 import type { GpsFollowMode, UserPosition } from "./contracts";
 import type { TransitController } from "./useTimeTransit";
 maplibregl.setWorkerUrl(workerUrl);
-
-// Every layer id the app itself draws on top of the basemap. The riding
-// view hides anything NOT in this list (i.e. basemap chrome: roads,
-// labels, imagery) so the route floats on a dark matte.
-const MATTE_LAYER = "riding-matte";
-const APP_LAYER_PREFIXES = [
-  "ambient-",
-  "network-",
-  "route-",
-  "user-",
-  MATTE_LAYER,
-];
-const isAppLayer = (id: string) =>
-  APP_LAYER_PREFIXES.some((p) => id.startsWith(p) || id === p);
-const USER_LAYERS = [
-  "user-accuracy-circle",
-  "user-heading-cone",
-  "user-puck-dot",
-];
-
-const METERS_PER_DEG_LAT = 111320;
-// destination point `meters` away along `bearing` (deg, 0 = north)
-function destination(
-  lon: number,
-  lat: number,
-  bearing: number,
-  meters: number,
-): [number, number] {
-  const rad = (bearing * Math.PI) / 180;
-  const dLat = (Math.cos(rad) * meters) / METERS_PER_DEG_LAT;
-  const dLon =
-    (Math.sin(rad) * meters) /
-    (METERS_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180));
-  return [lon + dLon, lat + dLat];
-}
-function ring(
-  lon: number,
-  lat: number,
-  meters: number,
-  steps = 48,
-): [number, number][] {
-  const pts: [number, number][] = [];
-  for (let i = 0; i <= steps; i++)
-    pts.push(destination(lon, lat, (i / steps) * 360, meters));
-  return pts;
-}
-// puck FeatureCollection: meter-sized accuracy ring + heading cone
-// polygons + the dot point, so they scale correctly at every zoom.
-function userFeatures(p: UserPosition): GeoJSON.Feature[] {
-  const features: GeoJSON.Feature[] = [];
-  if (p.accuracy && p.accuracy > 0)
-    features.push({
-      type: "Feature",
-      properties: { part: "accuracy" },
-      geometry: {
-        type: "Polygon",
-        coordinates: [ring(p.lon, p.lat, p.accuracy)],
-      },
-    });
-  if (Number.isFinite(p.heading)) {
-    const r = Math.max(26, (p.accuracy ?? 0) * 0.6);
-    const coords: [number, number][] = [[p.lon, p.lat]];
-    for (let a = -32; a <= 32; a += 8)
-      coords.push(destination(p.lon, p.lat, p.heading! + a, r));
-    coords.push([p.lon, p.lat]);
-    features.push({
-      type: "Feature",
-      properties: { part: "cone" },
-      geometry: { type: "Polygon", coordinates: [coords] },
-    });
-  }
-  features.push({
-    type: "Feature",
-    properties: { part: "dot" },
-    geometry: { type: "Point", coordinates: [p.lon, p.lat] },
-  });
-  return features;
-}
-
-// small white chevron for walk-leg direction ticks — icon (not text)
-// because the satellite style ships no glyph PBFs.
-function chevronImage(size = 22): ImageData {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  const s = size;
-  ctx.lineWidth = s * 0.16;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = "#eef7ff";
-  ctx.beginPath();
-  ctx.moveTo(s * 0.3, s * 0.18);
-  ctx.lineTo(s * 0.72, s * 0.5);
-  ctx.lineTo(s * 0.3, s * 0.82);
-  ctx.stroke();
-  return ctx.getImageData(0, 0, s, s);
-}
 
 export function MapLayer({
   controller,
@@ -205,12 +118,7 @@ export function MapLayer({
       // tapped a route line? show its stops + next departures.
       // query a 12px box — thin lines (and dash gaps) are hard to hit,
       // and the fat glow layer makes a generous target.
-      const ambientLayers = [
-        "ambient-glow",
-        "ambient-flow",
-        "ambient-core",
-        "ambient-line",
-      ].filter((l) => m.getLayer(l));
+      const ambientLayers = AMBIENT_HIT_LAYERS.filter((l) => m.getLayer(l));
       const hit = ambientLayers.length
         ? m.queryRenderedFeatures(
             [
@@ -269,192 +177,10 @@ export function MapLayer({
     let ambientFC: GeoJSON.FeatureCollection | null = null;
     let stopsFC: GeoJSON.FeatureCollection | null = null;
     let arrows: ArrowField = [];
-    const FLOW = [
-      [0, 4, 3],
-      [0.5, 4, 2.5],
-      [1, 4, 2],
-      [1.5, 4, 1.5],
-      [2, 4, 1],
-      [2.5, 4, 0.5],
-      [3, 4, 0],
-      [0, 0.5, 3, 3.5],
-      [0, 1, 3, 3],
-      [0, 1.5, 3, 2.5],
-      [0, 2, 3, 2],
-      [0, 2.5, 3, 1.5],
-      [0, 3, 3, 1],
-      [0, 3.5, 3, 0.5],
-    ];
-    const ambientIds = [
-      "ambient-glow",
-      "ambient-core",
-      "ambient-flow",
-      "ambient-line",
-      "ambient-arrows",
-      "ambient-stops",
-    ];
     const drawAmbient = () => {
-      // getStyle() is enough — isStyleLoaded() stays false while tiles
-      // stream in, which would drop every call.
-      if (!ambientFC || !m.getStyle()) return;
+      if (!ambientFC) return;
       try {
-        for (const id of ambientIds) if (m.getLayer(id)) m.removeLayer(id);
-        if (m.getSource("ambient")) m.removeSource("ambient");
-        if (m.getSource("ambient-arrows")) m.removeSource("ambient-arrows");
-        if (m.getSource("ambient-stops")) m.removeSource("ambient-stops");
-        m.addSource("ambient", { type: "geojson", data: ambientFC });
-        const sat = m.getContainer().classList.contains("satellite");
-        if (stopsFC) {
-          m.addSource("ambient-stops", { type: "geojson", data: stopsFC });
-          m.addLayer({
-            id: "ambient-stops",
-            type: "circle",
-            source: "ambient-stops",
-            minzoom: 12.5,
-            paint: {
-              "circle-radius": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                12.5,
-                1.5,
-                16,
-                4.5,
-              ],
-              "circle-color": sat ? "#ffd98a" : "#8fd0ff",
-              "circle-opacity": 0.9,
-              "circle-stroke-width": 1.4,
-              "circle-stroke-color": sat ? "#10161f" : "#0a1420",
-            },
-          });
-        }
-        if (sat) {
-          m.addLayer({
-            id: "ambient-line",
-            type: "line",
-            source: "ambient",
-            layout: { "line-cap": "round" },
-            paint: {
-              "line-color": "#0a0f16",
-              "line-width": [
-                "interpolate",
-                ["exponential", 1.5],
-                ["zoom"],
-                10,
-                3,
-                15,
-                11,
-              ],
-              "line-opacity": 0.7,
-            },
-          });
-          m.addLayer({
-            id: "ambient-core",
-            type: "line",
-            source: "ambient",
-            layout: { "line-cap": "round" },
-            paint: {
-              "line-color": "#ffdf94",
-              "line-width": [
-                "interpolate",
-                ["exponential", 1.5],
-                ["zoom"],
-                10,
-                1.4,
-                15,
-                5,
-              ],
-              "line-opacity": 0.95,
-            },
-          });
-          m.addSource("ambient-arrows", {
-            type: "geojson",
-            data: advanceArrows(arrows, 0),
-          });
-          if (!m.hasImage("net-arrow")) m.addImage("net-arrow", arrowImage());
-          m.addLayer({
-            id: "ambient-arrows",
-            type: "symbol",
-            source: "ambient-arrows",
-            layout: {
-              "icon-image": "net-arrow",
-              "icon-size": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                10,
-                0.3,
-                15,
-                0.7,
-              ],
-              "icon-rotate": ["get", "rot"],
-              "icon-rotation-alignment": "map",
-              "icon-allow-overlap": true,
-              "icon-ignore-placement": true,
-            },
-            paint: { "icon-opacity": 0.85 },
-          });
-        } else {
-          m.addLayer({
-            id: "ambient-glow",
-            type: "line",
-            source: "ambient",
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": ["get", "c"],
-              "line-width": [
-                "interpolate",
-                ["exponential", 1.5],
-                ["zoom"],
-                10,
-                4,
-                15,
-                20,
-              ],
-              "line-blur": 10,
-              "line-opacity": 0.55,
-            },
-          });
-          m.addLayer({
-            id: "ambient-core",
-            type: "line",
-            source: "ambient",
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": ["get", "c"],
-              "line-width": [
-                "interpolate",
-                ["exponential", 1.5],
-                ["zoom"],
-                10,
-                1.6,
-                15,
-                6,
-              ],
-              "line-opacity": 0.85,
-            },
-          });
-          m.addLayer({
-            id: "ambient-flow",
-            type: "line",
-            source: "ambient",
-            layout: { "line-cap": "round" },
-            paint: {
-              "line-color": "#ffffff",
-              "line-width": [
-                "interpolate",
-                ["exponential", 1.5],
-                ["zoom"],
-                10,
-                1.6,
-                15,
-                5,
-              ],
-              "line-opacity": 0.95,
-              "line-dasharray": FLOW[0],
-            },
-          });
-        }
+        paintAmbient(m, ambientFC, stopsFC, arrows);
       } catch (e) {
         setError(
           `Ambient layer: ${e instanceof Error ? e.message : String(e)}`,
@@ -489,14 +215,7 @@ export function MapLayer({
           const now = performance.now(),
             dt = (now - last) / 1000;
           last = now;
-          if (m.getLayer("ambient-flow")) {
-            phase = (phase + 1) % FLOW.length;
-            m.setPaintProperty("ambient-flow", "line-dasharray", FLOW[phase]);
-          }
-          if (m.getLayer("ambient-arrows"))
-            (
-              m.getSource("ambient-arrows") as maplibregl.GeoJSONSource
-            )?.setData(advanceArrows(arrows, dt));
+          phase = tickAmbient(m, arrows, dt, phase);
         }, 90);
     return () => {
       clearInterval(beat);
@@ -525,182 +244,11 @@ export function MapLayer({
     const m = map.current;
     if (!m) return;
     const markers: maplibregl.Marker[] = [];
-    const seen = new Set<string>();
-    const corridors = (chain ? trips : results.map((r) => r.trip))
-      .flatMap((t) => t.legs)
-      .filter((l) => l.mode !== "WALK" && l.legGeometry)
-      .flatMap((l) => {
-        const key = `${l.mode}|${l.routeShortName}|${l.legGeometry!.points}`;
-        if (seen.has(key)) return [];
-        seen.add(key);
-        return [
-          {
-            type: "Feature" as const,
-            properties: {
-              color: `#${(l.routeColor || "4d9eff").replace("#", "")}`,
-            },
-            geometry: {
-              type: "LineString" as const,
-              coordinates: decode(
-                l.legGeometry!.points,
-                l.legGeometry!.precision,
-              ),
-            },
-          },
-        ];
-      });
-    const draw = () => {
-      for (const id of [
-        "network-glow",
-        "network-core",
-        "route-casing",
-        "route-casing-walk",
-        "route-ride",
-        "route-walk",
-        "route-walk-chevrons",
-      ])
-        if (m.getLayer(id)) m.removeLayer(id);
-      if (m.getSource("network")) m.removeSource("network");
-      if (m.getSource("route")) m.removeSource("route");
-      const features = trips.flatMap((t) =>
-        t.legs.map((l) => ({
-          type: "Feature" as const,
-          properties: {
-            walk: l.mode === "WALK",
-            color:
-              l.mode === "WALK"
-                ? basemap === "satellite"
-                  ? "#e8f4ff"
-                  : "#a8c7da"
-                : `#${(l.routeColor || "339aff").replace("#", "")}`,
-          },
-          geometry: {
-            type: "LineString" as const,
-            coordinates: l.legGeometry
-              ? decode(l.legGeometry.points, l.legGeometry.precision)
-              : [
-                  [l.from.lon, l.from.lat],
-                  [l.to.lon, l.to.lat],
-                ],
-          },
-        })),
-      );
-      if (corridors.length) {
-        m.addSource("network", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: corridors },
-        });
-        m.addLayer({
-          id: "network-glow",
-          type: "line",
-          source: "network",
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: {
-            "line-color": ["get", "color"],
-            "line-width": 8,
-            "line-blur": 6,
-            "line-opacity": 0.22,
-          },
-        });
-        m.addLayer({
-          id: "network-core",
-          type: "line",
-          source: "network",
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: {
-            "line-color": ["get", "color"],
-            "line-width": 2,
-            "line-opacity": 0.5,
-          },
-        });
-      }
-      m.addSource("route", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features },
-      });
-      m.addLayer({
-        id: "route-casing",
-        type: "line",
-        source: "route",
-        filter: ["==", "walk", false],
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": "#04101c",
-          "line-width": 13,
-          "line-opacity": 0.6,
-        },
-      });
-      m.addLayer({
-        id: "route-casing-walk",
-        type: "line",
-        source: "route",
-        filter: ["==", "walk", true],
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": "#04101c",
-          "line-width": 9,
-          "line-opacity": 0.45,
-        },
-      });
-      m.addLayer({
-        id: "route-ride",
-        type: "line",
-        source: "route",
-        filter: ["==", "walk", false],
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": ["get", "color"],
-          "line-width": 7.5,
-          "line-opacity": 1,
-        },
-      });
-      m.addLayer({
-        id: "route-walk",
-        type: "line",
-        source: "route",
-        filter: ["==", "walk", true],
-        paint: {
-          "line-color": ["get", "color"],
-          "line-width": 4,
-          "line-dasharray": [1, 2],
-        },
-      });
-      // direction chevrons along walk legs (transit legs stay bold
-      // solids) — icon instead of text since the satellite style has
-      // no glyph source.
-      if (!m.hasImage("walk-chevron"))
-        m.addImage("walk-chevron", chevronImage());
-      m.addLayer({
-        id: "route-walk-chevrons",
-        type: "symbol",
-        source: "route",
-        filter: ["==", "walk", true],
-        layout: {
-          "symbol-placement": "line",
-          "symbol-spacing": 90,
-          "icon-image": "walk-chevron",
-          "icon-size": 0.62,
-          "icon-rotation-alignment": "map",
-          "icon-allow-overlap": true,
-          "icon-ignore-placement": true,
-        },
-        paint: { "icon-opacity": 0.9 },
-      });
-      const coords = features.flatMap((f) => f.geometry.coordinates);
-      if (coords.length) {
-        const bounds = new maplibregl.LngLatBounds();
-        coords.forEach((c) => bounds.extend(c as [number, number]));
-        m.fitBounds(bounds, {
-          padding: {
-            left: window.innerWidth > 760 ? 460 : 40,
-            right: 70,
-            top: 100,
-            bottom: window.innerWidth > 760 ? 120 : 360,
-          },
-          maxZoom: 15,
-        });
-      }
-    };
+    const corridors = corridorFeatures(
+      chain ? trips : results.map((r) => r.trip),
+    );
+    const features = routeLineFeatures(trips, basemap === "satellite");
+    const draw = () => paintRoute(m, features, corridors);
     if (m.isStyleLoaded()) draw();
     m.on("style.load", draw);
     let frame = 0;
@@ -712,15 +260,7 @@ export function MapLayer({
       const pulse = (now: number) => {
         if (now - last > 45) {
           last = now;
-          if (m.getLayer("network-glow")) {
-            const amount = 0.5 + 0.5 * Math.sin(now / 900);
-            m.setPaintProperty(
-              "network-glow",
-              "line-opacity",
-              0.1 + 0.16 * amount,
-            );
-            m.setPaintProperty("network-glow", "line-width", 7 + 4 * amount);
-          }
+          pulseNetworkGlow(m, now);
         }
         frame = requestAnimationFrame(pulse);
       };
@@ -778,12 +318,7 @@ export function MapLayer({
   useEffect(() => {
     const m = map.current;
     if (!m || !busy) return;
-    const el = document.createElement("div");
-    el.className = "scan-ring";
-    el.appendChild(document.createElement("i"));
-    const marker = new maplibregl.Marker({ element: el })
-      .setLngLat([origin.lon, origin.lat])
-      .addTo(m);
+    const marker = attachScanRing(m, origin.lon, origin.lat);
     return () => {
       marker.remove();
     };
@@ -806,55 +341,16 @@ export function MapLayer({
     return () => markers.forEach((x) => x.remove());
   }, [hover]);
   // Wave-2: subtle pins for "Near your stop" venues around the boarded
-  // leg's destination — a geojson circle layer ("route-" prefix keeps it
-  // inside the riding-view app-layer allowlist)
+  // leg's destination.
   useEffect(() => {
     const m = map.current;
     if (!m) return;
-    const SRC = "route-dest-pois";
-    const clear = () => {
-      if (m.getLayer(SRC)) m.removeLayer(SRC);
-      if (m.getSource(SRC)) m.removeSource(SRC);
-    };
-    const draw = () => {
-      clear();
-      if (!ridePois.length || !m.getStyle()) return;
-      try {
-        m.addSource(SRC, {
-          type: "geojson",
-          data: {
-            type: "FeatureCollection",
-            features: ridePois.map((p) => ({
-              type: "Feature" as const,
-              properties: {},
-              geometry: {
-                type: "Point" as const,
-                coordinates: [p.lon, p.lat],
-              },
-            })),
-          },
-        });
-        m.addLayer({
-          id: SRC,
-          type: "circle",
-          source: SRC,
-          paint: {
-            "circle-radius": 4,
-            "circle-color": "#ffd166",
-            "circle-opacity": 0.55,
-            "circle-stroke-width": 1.5,
-            "circle-stroke-color": "#04101c",
-          },
-        });
-      } catch {
-        /* style mid-load — retried on style.load */
-      }
-    };
+    const draw = () => paintRidePois(m, ridePois);
     if (m.isStyleLoaded()) draw();
     m.on("style.load", draw);
     return () => {
       m.off("style.load", draw);
-      clear();
+      clearRidePois(m);
     };
   }, [ridePois]);
   // live user puck — accuracy ring + heading cone + dot, fed by a
@@ -863,49 +359,7 @@ export function MapLayer({
   useEffect(() => {
     const m = map.current;
     if (!m || !userPosition) return;
-    const data = (): GeoJSON.FeatureCollection => ({
-      type: "FeatureCollection",
-      features: userFeatures(userPosition),
-    });
-    const ensure = () => {
-      const src = m.getSource("user") as maplibregl.GeoJSONSource | undefined;
-      if (src) {
-        src.setData(data());
-        return;
-      }
-      if (!m.isStyleLoaded()) return;
-      try {
-        m.addSource("user", { type: "geojson", data: data() });
-        m.addLayer({
-          id: "user-accuracy-circle",
-          type: "fill",
-          source: "user",
-          filter: ["==", "part", "accuracy"],
-          paint: { "fill-color": "#3b9dff", "fill-opacity": 0.14 },
-        });
-        m.addLayer({
-          id: "user-heading-cone",
-          type: "fill",
-          source: "user",
-          filter: ["==", "part", "cone"],
-          paint: { "fill-color": "#7cc4ff", "fill-opacity": 0.4 },
-        });
-        m.addLayer({
-          id: "user-puck-dot",
-          type: "circle",
-          source: "user",
-          filter: ["==", "part", "dot"],
-          paint: {
-            "circle-radius": 7,
-            "circle-color": "#2f9bff",
-            "circle-stroke-width": 2.5,
-            "circle-stroke-color": "#ffffff",
-          },
-        });
-      } catch {
-        /* style mid-load — retried on style.load */
-      }
-    };
+    const ensure = () => ensureUserLayers(m, userPosition);
     ensure();
     m.on("style.load", ensure);
     return () => {
@@ -916,8 +370,7 @@ export function MapLayer({
   useEffect(() => {
     const m = map.current;
     if (!m || userPosition) return;
-    for (const id of USER_LAYERS) if (m.getLayer(id)) m.removeLayer(id);
-    if (m.getSource("user")) m.removeSource("user");
+    removeUserLayers(m);
   }, [userPosition]);
   // follow FAB behaviour: recenter on each fix (throttled), plus
   // bearing = heading in "heading" mode.
@@ -927,13 +380,7 @@ export function MapLayer({
     const now = performance.now();
     if (now - lastFollowAt.current < 1000) return;
     lastFollowAt.current = now;
-    m.easeTo({
-      center: [userPosition.lon, userPosition.lat],
-      duration: 800,
-      ...(followMode === "heading" && Number.isFinite(userPosition.heading)
-        ? { bearing: userPosition.heading! }
-        : {}),
-    });
+    followUserCamera(m, userPosition, followMode);
   }, [userPosition, followMode]);
   // Minimized riding view — hide every non-app layer (basemap chrome)
   // and paint a dark matte underneath so the route + puck float.
@@ -943,42 +390,11 @@ export function MapLayer({
   useEffect(() => {
     const m = map.current;
     if (!m) return;
-    const apply = () => {
-      const style = m.getStyle();
-      if (!style?.layers?.length) return;
-      try {
-        if (!m.getLayer(MATTE_LAYER))
-          m.addLayer(
-            {
-              id: MATTE_LAYER,
-              type: "background",
-              paint: { "background-color": "#0B0F17" },
-            },
-            style.layers[0].id,
-          );
-        for (const layer of m.getStyle().layers) {
-          if (isAppLayer(layer.id)) continue;
-          if (m.getLayoutProperty(layer.id, "visibility") !== "none") {
-            m.setLayoutProperty(layer.id, "visibility", "none");
-            hiddenLayers.current.add(layer.id);
-          }
-        }
-      } catch {
-        /* style mid-load — retried on style.load */
-      }
-    };
-    const restore = () => {
-      for (const id of hiddenLayers.current) {
-        if (m.getLayer(id)) m.setLayoutProperty(id, "visibility", "visible");
-      }
-      hiddenLayers.current.clear();
-      if (m.getLayer(MATTE_LAYER)) m.removeLayer(MATTE_LAYER);
-    };
     const onStyleLoad = () => {
-      if (ridingActive) apply();
+      if (ridingActive) applyRidingView(m, hiddenLayers.current);
     };
-    if (ridingActive) apply();
-    else restore();
+    if (ridingActive) applyRidingView(m, hiddenLayers.current);
+    else restoreRidingView(m, hiddenLayers.current);
     m.on("style.load", onStyleLoad);
     return () => {
       m.off("style.load", onStyleLoad);
