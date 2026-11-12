@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Leg } from "./core";
+import type { Leg, Place } from "./core";
 import {
   transitLeg,
   simulationTrace,
@@ -35,10 +35,12 @@ export function TripTracker({
   legs,
   onApply,
   onBus,
+  onDestPois,
 }: {
   legs: Leg[];
   onApply?: (from: { lat: number; lon: number }, at: number) => void;
   onBus?: (pos: { lat: number; lon: number } | null) => void;
+  onDestPois?: (pois: Place[]) => void;
 }) {
   const tracking = useTripTracking(legs),
     [delay, setDelay] = useState(4),
@@ -109,6 +111,10 @@ export function TripTracker({
       onBus?.(null);
     }
   }, [tracking.active]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Wave-2: surface the boarded leg's destination-stop POIs to the panel/map
+  useEffect(() => {
+    onDestPois?.(tracking.destPois);
+  }, [tracking.destPois]); // eslint-disable-line react-hooks/exhaustive-deps
   const simulation =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("simulate") === "1";

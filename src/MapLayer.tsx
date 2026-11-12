@@ -158,6 +158,7 @@ export function MapLayer({
     busy,
     basemap,
     chooseBasemap,
+    ridePois,
   } = controller;
   const mapNode = useRef<HTMLDivElement>(null);
   const pickRef = useRef(picking);
@@ -804,6 +805,58 @@ export function MapLayer({
     });
     return () => markers.forEach((x) => x.remove());
   }, [hover]);
+  // Wave-2: subtle pins for "Near your stop" venues around the boarded
+  // leg's destination — a geojson circle layer ("route-" prefix keeps it
+  // inside the riding-view app-layer allowlist)
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const SRC = "route-dest-pois";
+    const clear = () => {
+      if (m.getLayer(SRC)) m.removeLayer(SRC);
+      if (m.getSource(SRC)) m.removeSource(SRC);
+    };
+    const draw = () => {
+      clear();
+      if (!ridePois.length || !m.getStyle()) return;
+      try {
+        m.addSource(SRC, {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: ridePois.map((p) => ({
+              type: "Feature" as const,
+              properties: {},
+              geometry: {
+                type: "Point" as const,
+                coordinates: [p.lon, p.lat],
+              },
+            })),
+          },
+        });
+        m.addLayer({
+          id: SRC,
+          type: "circle",
+          source: SRC,
+          paint: {
+            "circle-radius": 4,
+            "circle-color": "#ffd166",
+            "circle-opacity": 0.55,
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": "#04101c",
+          },
+        });
+      } catch {
+        /* style mid-load — retried on style.load */
+      }
+    };
+    if (m.isStyleLoaded()) draw();
+    m.on("style.load", draw);
+    return () => {
+      m.off("style.load", draw);
+      clear();
+    };
+  }, [ridePois]);
   // live user puck — accuracy ring + heading cone + dot, fed by a
   // single GeoJSON source updated on each fix. Meter-sized polygon
   // features (not pixel radii) so they scale correctly with zoom.

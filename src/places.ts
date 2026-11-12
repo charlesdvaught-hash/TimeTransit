@@ -145,3 +145,65 @@ export function placesInCorridor(
     .slice(0, opts.limit ?? 30)
     .map((x) => toPlace(x.r));
 }
+
+// Wave-2: "Near your stop" — food/coffee/grocery/pharmacy-ish venues worth
+// showing when the rider boards. Word-boundary guards keep "marketing
+// agency" and "barber" out of the market/bar buckets.
+const RIDE_KIND = new RegExp(
+  [
+    "restaurant",
+    "food",
+    "pizza",
+    "burger",
+    "taco",
+    "sushi",
+    "deli",
+    "sandwich",
+    "breakfast",
+    "brunch",
+    "coffee",
+    "cafe",
+    "café",
+    "bakery",
+    "donut",
+    "doughnut",
+    "tea",
+    "smoothie",
+    "juice",
+    "ice cream",
+    "dessert",
+    "grocery",
+    "supermarket",
+    "convenience",
+    "pharmacy",
+    "drugstore",
+    "pub",
+    "lounge",
+    "(?:^|\\s)bar(?:\\s|$)",
+    "(?:^|\\s)market(?:\\s|$)",
+  ].join("|"),
+);
+export const ridePoiKind = (kind?: string) => !!kind && RIDE_KIND.test(kind);
+
+// synchronous once loaded — callers should kick loadPlaces() first
+export function placesNear(
+  point: { lat: number; lon: number },
+  opts: {
+    radiusM?: number;
+    limit?: number;
+    match?: (kind: string) => boolean;
+  } = {},
+): Place[] {
+  if (!rows) {
+    loadPlaces();
+    return [];
+  }
+  const match = opts.match ?? ridePoiKind;
+  return rows
+    .filter((r) => r.kw && match(r.kw))
+    .map((r) => ({ r, m: distance(point, { lat: r.la, lon: r.lo }) * 1000 }))
+    .filter((x) => x.m <= (opts.radiusM ?? 250))
+    .sort((a, b) => a.m - b.m)
+    .slice(0, opts.limit ?? 8)
+    .map((x) => toPlace(x.r));
+}

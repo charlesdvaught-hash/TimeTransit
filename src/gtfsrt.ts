@@ -125,6 +125,98 @@ export function decodeVehiclePositions(
   return out;
 }
 
+// Wave-2: service alerts — entity.alert with informed_entity selectors,
+// TranslatedString header/description, and active_period windows.
+export type ServiceAlert = {
+  routeIds: string[];
+  stopIds: string[];
+  header: string;
+  description: string;
+  periods: { start?: number; end?: number }[];
+};
+
+// TranslatedString — prefer the English translation, else the first.
+// Translations may also arrive split across repeated field instances.
+function translated(msgs_: Field[]): string {
+  const trs = msgs_.flatMap((m) =>
+    msgs(fields(m.v as Uint8Array), 1).map((t) => fields(t.v as Uint8Array)),
+  );
+  const pick =
+    trs.find(
+      (t) => str(t.find((x) => x.f === 2)?.v ?? new Uint8Array()) === "en",
+    ) ?? trs[0];
+  return pick ? str(pick.find((x) => x.f === 1)?.v ?? new Uint8Array()) : "";
+}
+
+export function decodeAlerts(buf: Uint8Array): ServiceAlert[] {
+  const out: ServiceAlert[] = [];
+  for (const ent of msgs(fields(buf), 2)) {
+    const alert = msgs(fields(ent.v as Uint8Array), 5)[0];
+    if (!alert) continue;
+    const aF = fields(alert.v as Uint8Array);
+    const routeIds: string[] = [],
+      stopIds: string[] = [];
+    for (const sel of msgs(aF, 5)) {
+      const sF = fields(sel.v as Uint8Array);
+      const r = sF.find((x) => x.f === 2),
+        s = sF.find((x) => x.f === 5);
+      if (r) routeIds.push(str(r.v));
+      if (s) stopIds.push(str(s.v));
+    }
+    const periods = msgs(aF, 1).map((p) => {
+      const pF = fields(p.v as Uint8Array);
+      return { start: num(pF, 1), end: num(pF, 2) };
+    });
+    const header = translated(msgs(aF, 10));
+    const description = translated(msgs(aF, 11));
+    if (!header && !description) continue;
+    out.push({ routeIds, stopIds, header, description, periods });
+  }
+  return out;
+}
+
+const normId = (v?: string) =>
+  (v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+// equal, or one is the other with a namespaced prefix ("octa:55" vs "55") —
+// a bare numeric tail like "1" inside "10" must not match
+const idHit = (a: string, b: string) =>
+  a === b ||
+  (a.endsWith(b) && /[a-z]/.test(a.slice(0, -b.length))) ||
+  (b.endsWith(a) && /[a-z]/.test(b.slice(0, -a.length)));
+
+export function alertsFor(
+  alerts: ServiceAlert[],
+  query: {
+    routeId?: string;
+    routeName?: string;
+    stopId?: string;
+    at?: number;
+  },
+): ServiceAlert[] {
+  const at = query.at ?? Date.now() / 1000;
+  const routes = [query.routeId, query.routeName].map(normId).filter(Boolean);
+  const stop = normId(query.stopId);
+  return alerts.filter((a) => {
+    const active =
+      !a.periods.length ||
+      a.periods.some(
+        (p) =>
+          (p.start === undefined || at >= p.start) &&
+          (p.end === undefined || at <= p.end),
+      );
+    if (!active) return false;
+    // no selectors = system-wide alert — show it on every row
+    if (!a.routeIds.length && !a.stopIds.length) return true;
+    return (
+      (routes.length > 0 &&
+        a.routeIds.some((r) => routes.some((q) => idHit(normId(r), q)))) ||
+      (!!stop && a.stopIds.some((s) => normId(s) === stop))
+    );
+  });
+}
+
+let alertCache: { at: number; data: ServiceAlert[] } | null = null;
+
 const base = import.meta.env.VITE_TRANSIT_RELAY
   ? `${import.meta.env.VITE_TRANSIT_RELAY}/gtfsrt`
   : "/gtfsrt";
@@ -142,4 +234,22 @@ export async function fetchVehiclePositions(
   const r = await fetch(`${base}/VehiclePositions`, { signal });
   if (!r.ok) throw new Error(`GTFS-RT ${r.status}`);
   return decodeVehiclePositions(new Uint8Array(await r.arrayBuffer()));
+}
+
+// Alerts are additive UI garnish — every failure returns the last good
+// snapshot or [], never throws, never logs.
+export async function fetchAlerts(
+  signal?: AbortSignal,
+): Promise<ServiceAlert[]> {
+  if (alertCache && Date.now() - alertCache.at < 5 * 60 * 1000)
+    return alertCache.data;
+  try {
+    const r = await fetch(`${base}/alerts`, { signal });
+    if (!r.ok) return alertCache?.data ?? [];
+    const data = decodeAlerts(new Uint8Array(await r.arrayBuffer()));
+    alertCache = { at: Date.now(), data };
+    return data;
+  } catch {
+    return alertCache?.data ?? [];
+  }
 }
