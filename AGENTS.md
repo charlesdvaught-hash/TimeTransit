@@ -267,3 +267,51 @@ user.email=...` per commit, and `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env vars
   covers tap-toggle and drag-to-full on WebKit.
 - App font is "Jockey One" (Tahoma/system fallback) — single-weight display
   face, so bold text is browser-synthesized.
+
+## OneBusAway plan (Nov 2026 — decided, not built)
+
+- **What:** self-hosted OneBusAway (`github.com/OneBusAway`) as a SoCal
+  realtime layer — goal is removing the Transit free-tier release blocker
+  (1,500 calls/mo hard cap; paid agreement needed for real scale).
+- **Coverage:** hosted regions have NO LA/OC
+  (`regions.onebusaway.org/regions-v3.json` — San Diego closest, plus
+  Tampa/Puget Sound/DC/Adelaide/Davis; MTA NY is SIRI-only) → self-host is
+  required for home turf.
+- **API receipts:** CORS `Access-Control-Allow-Origin: *`; `key=TEST` works
+  but is shared/rate-limited; `arrivals-and-departures-for-location` = one
+  call for every predicted arrival in a radius; `trip-details` status
+  carries position, orientation, `scheduleDeviation`,
+  `occupancyStatus`/`Count`/`Capacity`, and `nextTripId`/`previousTripId`
+  (block chaining); `vehicles-for-agency`; official npm SDK
+  `onebusaway-sdk`.
+- **Deploy:** `github.com/OneBusAway/docker` — compose includes its own
+  mysql:8.4 AND postgres:16 (whole stack = one Docker host); builds OBA
+  2.7.2 from source so ARM works; `GTFS_RT_FEEDS` env is a JSON array of
+  feeds `{tripUpdatesUrl, vehiclePositionsUrl, alertsUrl, agencyIds[]}` →
+  OCTA + Metro realtime in one deploy; static `GTFS_URL` is single-feed →
+  OCTA-only v1.
+- **Host (decided, not provisioned):** Oracle Cloud Always Free Ampere A1
+  (up to 4 OCPU / 24 GB / 200 GB, free public IPs, ~10 TB/mo egress; prefer
+  us-sanjose-1/us-phoenix-1; signup card is refunded; idle-reclaim risk →
+  watchdog ping doubles as keep-alive).
+- **Ops robot:** Devin automation (or public-repo GH Actions — free) does
+  weekly GTFS bundle rebuild + health watchdog; GTFS drift matters (OCTA
+  feed expires 2027-02-13).
+- **Accuracy scoreboard (planned):** provider-tagged prediction-vs-actual
+  table in `ReliabilityPanel`; observations already dedupe by source so a
+  new provider is a new tag; log store = worker D1/KV — never an external
+  hosted DB for OBA (its DB is rebuildable scratch).
+- **Metro realtime:** `api.metro.net` is keyless JSON but real-time
+  endpoints return `[]` and send no CORS → Metro RT path is Swiftly
+  (`api.goswift.ly`, free key; OBA supports `FEED_API_KEY` header).
+- **Rejected:** GCP e2-micro (external IPv4 ~$3.65/mo breaks $0), home-PC
+  hosting (~$20-35/mo electricity, inefficient), external hosted OBA DB
+  (scratch state), local Docker (personal PC stays out of the loop).
+  OBACloud (OTSF managed) = fallback if ops ever annoys.
+- **Integration sketch (unbuilt):** worker `/oba/*` relay (key inject +
+  origin allowlist) → LiveProvider-style interface over `src/transit.ts` →
+  hosted-region dispatch for covered cities later.
+
+Nothing above is built — live ETAs today still come from `src/transit.ts`
+(Transit API relay) and `src/gtfsrt.ts` (OCTA feed). Full decision trail:
+`onebusawaybrainstorm.txt` (repo root).
