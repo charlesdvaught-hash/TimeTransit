@@ -189,6 +189,39 @@ export async function resolveEventStops(
   return { plan: { ...plan, stops }, events };
 }
 
+// Models can't count weekdays — resolve named days to concrete dates
+// client-side and hand the model a lookup table it only has to copy.
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+function localIso(d: Date, endOfDay = false): string {
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, endOfDay ? 10 : 16);
+}
+function clockStamp(message: string, now: Date): string {
+  const hints: string[] = [];
+  const lower = message.toLowerCase();
+  WEEKDAYS.forEach((day, i) => {
+    if (!new RegExp(`\\b${day.toLowerCase()}\\b`).test(lower)) return;
+    const d = new Date(now);
+    d.setDate(d.getDate() + ((i - now.getDay() + 7) % 7));
+    hints.push(`${day} = ${localIso(d, true)}`);
+  });
+  if (/\btomorrow\b/.test(lower)) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    hints.push(`tomorrow = ${localIso(d, true)}`);
+  }
+  return `${WEEKDAYS[now.getDay()]} ${localIso(now)}${hints.length ? `; ${hints.join(", ")}` : ""}`;
+}
+
 export async function adventureQuery(
   message: string,
   history: ChatMessage[] = [],
@@ -197,12 +230,9 @@ export async function adventureQuery(
   const relay = import.meta.env.VITE_TRANSIT_RELAY;
   if (!relay) return null; // dev proxy can't serve /llm — degrade silently
   const now = new Date();
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
   let body: Record<string, unknown> = {
     task: "assist",
-    input: `${message}\n(Current local time: ${local})`,
+    input: `${message}\n(Current local time: ${clockStamp(message, now)})`,
     history,
   };
   for (let attempt = 0; attempt < 2; attempt++) {

@@ -73,13 +73,17 @@ export function AdventureAssistant({
       return;
     }
     const { plan, events } = await resolveEventStops(raw, controller.origin);
+    const wanted = raw.stops.filter((s) => s.type === "event").length;
     const found = events.map(
       (e) =>
         `${e.title}${e.venue ? ` @ ${e.venue}` : ""} · ${time(new Date(e.start))}`,
     );
     const summary =
       `Got it: ${describeAdventure(plan)}` +
-      (found.length ? ` — matched ${found.join("; ")}` : "");
+      (found.length ? ` — matched ${found.join("; ")}` : "") +
+      (wanted > events.length
+        ? " — no live event listings matched, searching venues instead"
+        : "");
     setHistory((h) =>
       [
         ...h,

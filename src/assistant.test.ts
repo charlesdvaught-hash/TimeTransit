@@ -271,8 +271,24 @@ describe("adventureQuery", () => {
     const body = JSON.parse(String(init?.body));
     expect(body).toMatchObject({ task: "assist", history });
     expect(body.input).toMatch(
-      /^museum day\n\(Current local time: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}\)$/,
+      /^museum day\n\(Current local time: \w+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}\)$/,
     );
+  });
+  it("resolves named weekdays to concrete dates in the clock stamp", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-11T16:05:00")); // a Wednesday
+    try {
+      const spy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(llmResponse(valid));
+      await adventureQuery("a concert Friday, lunch tomorrow", []);
+      const body = JSON.parse(String(spy.mock.calls[0][1]?.body));
+      expect(body.input).toContain("Wednesday 2026-11-11T16:05");
+      expect(body.input).toContain("Friday = 2026-11-13");
+      expect(body.input).toContain("tomorrow = 2026-11-12");
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it("retries once with repair errors after invalid output", async () => {
     const spy = vi

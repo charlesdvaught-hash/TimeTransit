@@ -20,7 +20,9 @@ const PROMPTS = {
     "('first'|'middle'|'last'). Max 4 stops. Set round_trip when the rider " +
     "should end back at the start. Use depart_at/return_by (ISO times) " +
     "only when the request states them; resolve relative times like " +
-    "'back by 6' against the 'Current local time' line when present.",
+    "'back by 6' against the 'Current local time' line when present — " +
+    "a named weekday means the next future date having that weekday. " +
+    "Stops are places only; never emit transit legs or 'home' as stops.",
 };
 const PARSE_SCHEMA = {
   type: "object",
