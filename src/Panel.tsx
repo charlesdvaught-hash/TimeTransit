@@ -5,8 +5,11 @@ import {
   Navigation,
   Search,
   Share2,
+  Star,
+  TriangleAlert,
   X,
 } from "lucide-react";
+import { alertsFor } from "./gtfsrt"; // WAVE-2
 import { searchOrigin } from "./api";
 import { shareJourney } from "./shareUtils";
 import { SettingsPanel } from "./SettingsPanel";
@@ -35,6 +38,11 @@ export function Panel({ controller }: { controller: TransitController }) {
     locating,
     changeOrigin,
     locate,
+    isFavorite,
+    toggleFavorite,
+    alerts,
+    ridePois,
+    offlineCache,
   } = controller;
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
@@ -153,6 +161,11 @@ export function Panel({ controller }: { controller: TransitController }) {
           />
         )}
       </div>
+      {offlineCache && (
+        <p className="offline-pill" role="status">
+          Offline — cached trip
+        </p>
+      )}
       {controller.preferences.aiMode === "full" && ( // STAGE-6
         <AdventureAssistant controller={controller} />
       )}
@@ -199,42 +212,104 @@ export function Panel({ controller }: { controller: TransitController }) {
               <Share2 size={13} />
             </button>
           </summary>
-          {trip.legs.map((l, i) => (
-            <div className="leg" key={i}>
-              <span
-                style={{
-                  background:
-                    l.mode === "WALK"
-                      ? "#738a9e"
-                      : `#${(l.routeColor || "339aff").replace("#", "")}`,
-                }}
-              />
-              <div>
-                <strong>
-                  {l.mode === "WALK"
-                    ? "Walk"
-                    : `${l.mode} ${l.routeShortName || ""}`}
-                </strong>
-                <p>
-                  {l.from.name} → {l.to.name}
-                </p>
-                <small>
-                  {time(l.startTime)} – {time(l.endTime)} ·{" "}
-                  {minutes(l.duration)} min {l.headsign && `· ${l.headsign}`}
-                </small>
-                {liveDepartures[i] && (
-                  <small className="live-departure">
-                    {liveDepartures[i].cancelled
-                      ? `Cancelled${liveDepartures[i].network ? ` · ${liveDepartures[i].network}` : ""}`
-                      : liveDepartures[i].realtime
-                        ? `Live: departs ${time(liveDepartures[i].expectedTime)} · ${delayText(liveDepartures[i].delay)}${liveDepartures[i].network ? ` · ${liveDepartures[i].network}` : ""}`
-                        : `Scheduled only · no realtime${liveDepartures[i].network ? ` · ${liveDepartures[i].network}` : ""}`}
+          {trip.legs.map((l, i) => {
+            const legAlerts =
+              l.mode === "WALK"
+                ? []
+                : alertsFor(alerts, {
+                    routeId: l.routeId,
+                    routeName: l.routeShortName || liveDepartures[i]?.routeName,
+                    stopId: l.from.stopId,
+                  });
+            return (
+              <div className="leg" key={i}>
+                <span
+                  style={{
+                    background:
+                      l.mode === "WALK"
+                        ? "#738a9e"
+                        : `#${(l.routeColor || "339aff").replace("#", "")}`,
+                  }}
+                />
+                <div>
+                  <strong>
+                    {l.mode === "WALK"
+                      ? "Walk"
+                      : `${l.mode} ${l.routeShortName || ""}`}
+                    {l.mode !== "WALK" && (
+                      <button
+                        className={isFavorite(l) ? "fav-star on" : "fav-star"}
+                        title={
+                          isFavorite(l)
+                            ? "Remove favorite line"
+                            : "Favorite this line"
+                        }
+                        aria-label={
+                          isFavorite(l)
+                            ? `Unfavorite line ${l.routeShortName || l.mode}`
+                            : `Favorite line ${l.routeShortName || l.mode}`
+                        }
+                        aria-pressed={isFavorite(l)}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          toggleFavorite(l);
+                        }}
+                      >
+                        <Star
+                          size={12}
+                          fill={isFavorite(l) ? "currentColor" : "none"}
+                        />
+                      </button>
+                    )}
+                  </strong>
+                  <p>
+                    {l.from.name} → {l.to.name}
+                  </p>
+                  <small>
+                    {time(l.startTime)} – {time(l.endTime)} ·{" "}
+                    {minutes(l.duration)} min {l.headsign && `· ${l.headsign}`}
                   </small>
-                )}
+                  {liveDepartures[i] && (
+                    <small className="live-departure">
+                      {liveDepartures[i].cancelled
+                        ? `Cancelled${liveDepartures[i].network ? ` · ${liveDepartures[i].network}` : ""}`
+                        : liveDepartures[i].realtime
+                          ? `Live: departs ${time(liveDepartures[i].expectedTime)} · ${delayText(liveDepartures[i].delay)}${liveDepartures[i].network ? ` · ${liveDepartures[i].network}` : ""}`
+                          : `Scheduled only · no realtime${liveDepartures[i].network ? ` · ${liveDepartures[i].network}` : ""}`}
+                    </small>
+                  )}
+                  {!!legAlerts.length && (
+                    <details className="leg-alert">
+                      <summary>
+                        <TriangleAlert size={11} /> Service alert ·{" "}
+                        {legAlerts[0].header || "Details"}
+                      </summary>
+                      {legAlerts.map((a, j) => (
+                        <p key={j}>
+                          {a.header && <strong>{a.header}</strong>}
+                          {a.description}
+                        </p>
+                      ))}
+                    </details>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </details>
+      )}
+      {!!ridePois.length && (
+        <div className="ride-pois">
+          <small>NEAR YOUR STOP</small>
+          <div className="ride-poi-strip">
+            {ridePois.map((p) => (
+              <span className="ride-poi" key={p.id}>
+                <strong>{p.name}</strong>
+                {p.kind && <em>{p.kind}</em>}
+              </span>
+            ))}
+          </div>
+        </div>
       )}
     </aside>
   );

@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { PreferencesPanel } from "./PreferencesPanel";
 import { ReliabilityPanel } from "./ReliabilityPanel";
 import type { AiMode, SavedPlace } from "./contracts";
 import { Briefcase, Dumbbell, Home, MapPin, Trash2 } from "lucide-react";
 import { gmapsConfigured } from "./gmaps";
+import { loadSync, saveSync } from "./syncClient"; // WAVE-2
 import type { Preferences } from "./preferences";
 import type { TransitController } from "./useTimeTransit";
 const tomtom = import.meta.env.VITE_TOMTOM_API_KEY || "";
@@ -24,6 +26,7 @@ export function SettingsPanel({
   controller: TransitController;
 }) {
   const { preferences: p, setPreferences } = controller;
+  const [sync, setSync] = useState(loadSync); // WAVE-2
   return (
     <details className="utility-panel settings-panel">
       <summary>
@@ -162,6 +165,41 @@ export function SettingsPanel({
       </details>
       <PreferencesPanel controller={controller} />
       <ReliabilityPanel />
+      <details className="utility-panel">
+        <summary>
+          Sync <span>{sync.url && sync.token ? "on" : "off"}</span>
+        </summary>
+        <label>
+          Relay URL{" "}
+          <input
+            aria-label="Sync relay URL"
+            placeholder="https://your-worker.example.dev"
+            value={sync.url}
+            onChange={(e) => {
+              const next = { ...sync, url: e.target.value.trim() };
+              setSync(next);
+              saveSync(next);
+            }}
+          />
+        </label>
+        <label>
+          Token{" "}
+          <input
+            aria-label="Sync token"
+            type="password"
+            value={sync.token}
+            onChange={(e) => {
+              const next = { ...sync, token: e.target.value.trim() };
+              setSync(next);
+              saveSync(next);
+            }}
+          />
+        </label>
+        <small className="settings-hint">
+          Saved places, favorite lines &amp; recents sync through your relay
+          worker (GET/PUT /api/state). Leave blank to stay local-only.
+        </small>
+      </details>
       <details className="utility-panel">
         <summary>Credits & data sources</summary>
         <p>

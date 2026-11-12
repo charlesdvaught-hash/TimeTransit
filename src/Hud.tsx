@@ -68,6 +68,7 @@ export function Hud({ controller }: { controller: TransitController }) {
             legs={legs}
             onApply={chain ? undefined : controller.reroute}
             onBus={controller.setLiveBus}
+            onDestPois={controller.setRidePois}
           />
         </div>
       )}

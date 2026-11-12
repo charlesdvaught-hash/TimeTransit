@@ -7,6 +7,7 @@ import {
   rankByReachability,
   scanOrder,
   type Itinerary,
+  type Leg,
   type Pin,
   type Place,
   type ReachableStop,
@@ -20,7 +21,7 @@ import { nameScore } from "./suggestions"; // STAGE-1
 import type { SemanticParseResult } from "./contracts"; // STAGE-1
 import { inCoverage, reachableStops, scan } from "./scan";
 import { loadScanIndex } from "./scanData";
-import { fetchTripDelays } from "./gtfsrt";
+import { fetchAlerts, fetchTripDelays, type ServiceAlert } from "./gtfsrt"; // WAVE-2
 import { loadBasemap, saveBasemap, type Basemap } from "./basemap";
 import { loadPlaces, placesInCorridor, searchPlaces } from "./places";
 import { observation } from "./reliability";
@@ -36,11 +37,21 @@ import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
 import { geolocationGranted, useUserPosition } from "./useUserPosition";
 import {
   readBookmarks,
+  readCachedPlan,
+  readFavoriteLines,
   readRecentSearches,
   writeBookmarks,
+  writeCachedPlan,
+  writeFavoriteLines,
   writeRecentSearches,
 } from "./storage";
-import type { RecentSearch, SavedPlace } from "./contracts";
+import type {
+  CachedPlan,
+  FavoriteLine,
+  RecentSearch,
+  SavedPlace,
+} from "./contracts";
+import { syncConfigured, syncState, type SyncState } from "./syncClient"; // WAVE-2
 import { parseShareLink } from "./shareUtils";
 import {
   applyTheme,
@@ -116,7 +127,12 @@ export function useTimeTransit() {
         cancelled: boolean;
         realtime: boolean;
       }[];
-    } | null>(null);
+    } | null>(null),
+    // WAVE-2
+    [favorites, setFavorites] = useState<FavoriteLine[]>(readFavoriteLines),
+    [alerts, setAlerts] = useState<ServiceAlert[]>([]),
+    [ridePois, setRidePois] = useState<Place[]>([]),
+    [offlineCache, setOfflineCache] = useState<CachedPlan | null>(null);
   function invalidateTrip() {
     tripAbort.current?.abort();
     tripAbort.current = null;
@@ -247,6 +263,7 @@ export function useTimeTransit() {
         updatedAt: Date.now(),
       });
       writeBookmarks(next);
+      pushSync({ bookmarks: next });
       return next;
     });
   }
@@ -254,6 +271,7 @@ export function useTimeTransit() {
     setBookmarks((prev) => {
       const next = prev.filter((b) => b.id !== id);
       writeBookmarks(next);
+      pushSync({ bookmarks: next });
       return next;
     });
   }
@@ -263,6 +281,7 @@ export function useTimeTransit() {
         b.id === id ? { ...b, label: label.trim() || b.label } : b,
       );
       writeBookmarks(next);
+      pushSync({ bookmarks: next });
       return next;
     });
   }
@@ -280,7 +299,86 @@ export function useTimeTransit() {
     ].slice(0, 8);
     writeRecentSearches(next);
     setRecents(next);
+    pushSync({ recentSearches: next });
   }
+  // WAVE-2: favorite transit lines — a star badge on journey legs;
+  // localStorage first, optional worker sync when configured
+  const favKey = (l: Leg) => l.routeId || l.routeShortName || l.mode;
+  function isFavorite(leg: Leg) {
+    return favorites.some((f) => f.routeId === favKey(leg));
+  }
+  function toggleFavorite(leg: Leg) {
+    const routeId = favKey(leg);
+    setFavorites((prev) => {
+      const next = prev.some((f) => f.routeId === routeId)
+        ? prev.filter((f) => f.routeId !== routeId)
+        : [
+            ...prev,
+            {
+              routeId,
+              agencyId: leg.agencyId,
+              shortName: leg.routeShortName || leg.mode,
+              color: leg.routeColor,
+            },
+          ].slice(0, 32);
+      writeFavoriteLines(next);
+      pushSync({ favoriteLines: next });
+      return next;
+    });
+  }
+  // WAVE-2: worker sync — last-write-wins on the whole blob. localStorage
+  // is the source of truth; a newer remote blob is adopted wholesale.
+  function pushSync(
+    patch: Partial<
+      Pick<SyncState, "bookmarks" | "favoriteLines" | "recentSearches">
+    > = {},
+  ) {
+    if (!syncConfigured()) return;
+    const local: SyncState = {
+      bookmarks: patch.bookmarks ?? bookmarks,
+      favoriteLines: patch.favoriteLines ?? favorites,
+      recentSearches: patch.recentSearches ?? recents,
+      updatedAt: Date.now(),
+    };
+    syncState(local).then((merged) => {
+      if (!merged || merged.updatedAt <= local.updatedAt) return;
+      setBookmarks(merged.bookmarks);
+      writeBookmarks(merged.bookmarks);
+      setFavorites(merged.favoriteLines);
+      writeFavoriteLines(merged.favoriteLines);
+      setRecents(merged.recentSearches);
+      writeRecentSearches(merged.recentSearches);
+    });
+  }
+  // WAVE-2: GTFS-RT service alerts — session-cached ~5 min, silent on any
+  // failure, so rows just render without badges when the feed is absent
+  useEffect(() => {
+    if (!selected && !nearbyNow.length) return;
+    let live = true;
+    fetchAlerts()
+      .then((a) => {
+        if (live) setAlerts(a);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [selected, nearbyNow.length]);
+  const offline = () =>
+    typeof navigator === "undefined" || navigator.onLine === false;
+  function restoreCachedPlan() {
+    const cached = readCachedPlan();
+    const rows = (cached?.results ?? []) as Result[];
+    if (!cached || !rows.length) return false;
+    setResults(rows);
+    setSelected(rows[0]);
+    setOfflineCache(cached);
+    return true;
+  }
+  useEffect(() => {
+    if (offline()) restoreCachedPlan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-only
+  }, []);
   // departures board: one fastest plan per bookmark, refreshed when the
   // origin or the bookmark list changes (debounced + abortable)
   useEffect(() => {
@@ -508,6 +606,7 @@ export function useTimeTransit() {
     setQuery(term);
     setExploreBusy(true);
     setError("");
+    setOfflineCache(null);
     setResults([]);
     setSelected(null);
     setChain(null);
@@ -615,8 +714,17 @@ export function useTimeTransit() {
       );
       if (!c.signal.aborted && !tripAbort.current && found.length)
         setSelected(rank(found)[0]);
+      // WAVE-2: every fetch failed while offline → fall back to the
+      // last displayed journey instead of an empty list
+      else if (!c.signal.aborted && !found.length && offline())
+        restoreCachedPlan();
     } catch (e) {
-      if (!c.signal.aborted) setError((e as Error).message);
+      if (!c.signal.aborted) {
+        // WAVE-2: a fetch-level network failure (TypeError) restores the
+        // cached plan even if the browser still thinks it's online
+        if (e instanceof TypeError && restoreCachedPlan()) setError("");
+        else setError((e as Error).message);
+      }
     } finally {
       if (!c.signal.aborted) setExploreBusy(false);
     }
@@ -656,6 +764,7 @@ export function useTimeTransit() {
     setQuery(term);
     setTripBusy(true);
     setError("");
+    setOfflineCache(null);
     const speed = calibratedSpeed();
     setResults([]);
     setSelected(null);
@@ -844,6 +953,19 @@ export function useTimeTransit() {
     ? new Date(Date.parse(trip.endTime) + delay * 1000).toISOString()
     : null;
   const total = chain?.duration || (trip ? trip.duration + delay : undefined);
+  // WAVE-2: snapshot the displayed journey so an offline relaunch can
+  // restore it (the last results list + its top pick)
+  useEffect(() => {
+    if (!selected || !trip || chain) return;
+    writeCachedPlan({
+      savedAt: Date.now(),
+      query,
+      origin: { lat: origin.lat, lon: origin.lon, name: origin.name },
+      mode: arriveBy ? "arrive" : "depart",
+      targetTime: departure ? Date.parse(departure) : undefined,
+      results: results.length ? results : [{ place: selected.place, trip }],
+    });
+  }, [selected, trip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     preferences,
@@ -921,6 +1043,14 @@ export function useTimeTransit() {
     total,
     hover,
     setHover,
+    // WAVE-2
+    favorites,
+    isFavorite,
+    toggleFavorite,
+    alerts,
+    ridePois,
+    setRidePois,
+    offlineCache,
   };
 }
 export type TransitController = ReturnType<typeof useTimeTransit>;

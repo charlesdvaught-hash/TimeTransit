@@ -20,9 +20,11 @@ import {
   ShoppingBasket,
   Stethoscope,
   Trees,
+  TriangleAlert,
   UtensilsCrossed,
   Zap,
 } from "lucide-react";
+import { alertsFor } from "./gtfsrt"; // WAVE-2
 import { useEffect, useRef, useState } from "react";
 import { suggest } from "./api";
 import { categories, distance, suggestCategories, type Place } from "./core";
@@ -460,16 +462,31 @@ export function ResultsList({ controller }: { controller: TransitController }) {
             {nearbyNow.length > 0 && (
               <div className="nearby-now">
                 <small>NEARBY NOW</small>
-                {nearbyNow.slice(0, 5).map((d, i) => (
-                  <p key={i}>
-                    <strong>{d.route}</strong> {d.stopName}
-                    <span>
-                      {Math.max(0, Math.round((d.time - Date.now()) / 60000))}
-                      {" min"}
-                      {d.realtime ? " · live" : ""}
-                    </span>
-                  </p>
-                ))}
+                {nearbyNow.slice(0, 5).map((d, i) => {
+                  const hit = alertsFor(controller.alerts, {
+                    routeName: d.route,
+                  });
+                  return (
+                    <p key={i}>
+                      <strong>{d.route}</strong> {d.stopName}
+                      {!!hit.length && (
+                        <span
+                          className="alert-flag"
+                          title={hit[0].header || "Service alert"}
+                          role="img"
+                          aria-label={hit[0].header || "Service alert"}
+                        >
+                          <TriangleAlert size={11} />
+                        </span>
+                      )}
+                      <span>
+                        {Math.max(0, Math.round((d.time - Date.now()) / 60000))}
+                        {" min"}
+                        {d.realtime ? " · live" : ""}
+                      </span>
+                    </p>
+                  );
+                })}
               </div>
             )}
           </div>

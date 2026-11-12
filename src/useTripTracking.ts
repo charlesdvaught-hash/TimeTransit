@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Leg } from "./core";
+import type { Leg, Place } from "./core";
+import { loadPlaces, placesNear } from "./places";
 import {
   initialBoarding,
   simulationTrace,
@@ -15,6 +16,9 @@ export function useTripTracking(legs: Leg[]) {
   const [status, setStatus] = useState(""),
     [active, setActive] = useState(false),
     [error, setError] = useState(""),
+    // Wave-2: venues near the active leg's destination stop, filled once
+    // per boarding event and cleared when the ride ends
+    [destPois, setDestPois] = useState<Place[]>([]),
     [watch, setWatch] = useState<
       | {
           phase: "approaching" | "waiting" | "boarded" | "alighted";
@@ -32,6 +36,7 @@ export function useTripTracking(legs: Leg[]) {
     cleanup.current?.();
     cleanup.current = null;
     setActive(false);
+    setDestPois([]);
   }
   useEffect(() => {
     stop();
@@ -85,7 +90,7 @@ export function useTripTracking(legs: Leg[]) {
         setStatus(
           `${prefix}On board · ${Math.abs(delay)} min ${delay < 0 ? "early" : delay > 0 ? "late" : "delay"} · ${leg.routeShortName || leg.mode}`,
         );
-        if (before !== "boarded")
+        if (before !== "boarded") {
           addObservations([
             observation(
               leg,
@@ -95,6 +100,11 @@ export function useTripTracking(legs: Leg[]) {
               simulate,
             ),
           ]);
+          // Wave-2: snapshot what's near the destination stop, once
+          loadPlaces().then(() =>
+            setDestPois(placesNear(leg.to, { radiusM: 250, limit: 8 })),
+          );
+        }
       }
       if (state.phase === "alighted") {
         addObservations([
@@ -107,6 +117,7 @@ export function useTripTracking(legs: Leg[]) {
           ),
         ]);
         index++;
+        setDestPois([]);
         if (index === sequence.length) {
           setStatus(`${prefix}Arrived · ${leg.to.name}`);
           stop();
@@ -153,5 +164,5 @@ export function useTripTracking(legs: Leg[]) {
       cleanup.current = () => navigator.geolocation.clearWatch(id);
     }
   }
-  return { start, stop, status, active, error, watch };
+  return { start, stop, status, active, error, watch, destPois };
 }

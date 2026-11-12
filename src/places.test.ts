@@ -105,3 +105,50 @@ describe("placesInCorridor", () => {
     expect(placesInCorridor(["coffee"], [STOP], { radiusM: 500 })).toEqual([]);
   });
 });
+
+// WAVE-2: boarded-ride "Near your stop" filter
+describe("ridePoiKind", () => {
+  it("keeps food/coffee/grocery/pharmacy kinds", async () => {
+    const { ridePoiKind } = await mod();
+    for (const k of [
+      "coffee shop",
+      "mexican restaurant",
+      "grocery store",
+      "pharmacy",
+      "farmers market",
+      "sports bar",
+      "drugstore",
+    ])
+      expect(ridePoiKind(k)).toBe(true);
+  });
+  it("rejects look-alike kinds", async () => {
+    const { ridePoiKind } = await mod();
+    for (const k of ["marketing agency", "barber", "tire shop"])
+      expect(ridePoiKind(k)).toBe(false);
+    expect(ridePoiKind(undefined)).toBe(false);
+  });
+});
+
+describe("placesNear", () => {
+  it("returns kind-matched places inside the radius, nearest first", async () => {
+    const { placesNear } = await mod(CORRIDOR);
+    expect(placesNear(STOP, { radiusM: 250 }).map((h) => h.name)).toEqual([
+      "Verified Cafe",
+      "Wobbly Mart",
+      "Shaky Cafe",
+    ]);
+  });
+  it("honors a custom matcher and limit", async () => {
+    const { placesNear } = await mod(CORRIDOR);
+    const hits = placesNear(STOP, {
+      radiusM: 500,
+      match: (k) => k.includes("tire"),
+    });
+    expect(hits.map((h) => h.name)).toEqual(["Corner Tire"]);
+  });
+  it("returns [] before the index loads", async () => {
+    vi.resetModules();
+    const { placesNear } = await import("./places");
+    expect(placesNear(STOP)).toEqual([]);
+  });
+});
