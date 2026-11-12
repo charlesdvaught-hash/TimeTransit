@@ -56,6 +56,16 @@ describe("candidate preparation", () => {
       ),
     ).toEqual([]);
   });
+  it("keeps unrouted candidates as alternates without paying plan calls", async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `p-${i}`);
+    const find = vi.fn(async () => ids.map(place));
+    const route = vi.fn(async () => trip(60));
+    const [resolved] = await resolveTripCandidates([stop], find, route);
+    expect(route).toHaveBeenCalledTimes(6); // only the routed cap
+    expect(resolved.candidates).toHaveLength(6);
+    expect(resolved.alternates?.map((p) => p.id)).toEqual(ids.slice(6));
+    expect(resolved.pool).toBe(12);
+  });
   it("propagates abort errors rather than treating them as failed candidates", async () => {
     const error = new DOMException("Cancelled", "AbortError");
     const route = vi.fn(async () => {
@@ -68,7 +78,8 @@ describe("candidate preparation", () => {
         route,
       ),
     ).rejects.toBe(error);
-    expect(route).toHaveBeenCalledTimes(1);
+    // candidates time in parallel — both calls launch before either rejects
+    expect(route).toHaveBeenCalledTimes(2);
   });
   it("propagates an aborted signal even if the router returns an ordinary error", async () => {
     const controller = new AbortController();

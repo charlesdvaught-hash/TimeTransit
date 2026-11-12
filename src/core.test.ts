@@ -345,6 +345,15 @@ describe("keystone routes", () => {
     expect(keystoneIndex(stops)).toBe(1);
     expect(keystoneIndex([stops[1], stops[0]])).toBe(0); // keystone travels with its stop
   });
+  it("raw pool size beats the capped candidate count", () => {
+    // resolution caps every stop at 6 routable candidates — the pre-cap
+    // pool is what reveals "craft store (12 hits) rarer than lunch (50)"
+    const tied: Stop[] = [
+      { ...stops[0], candidates: lunches.slice(0, 2), pool: 50 },
+      { ...stops[1], pool: 12 },
+    ];
+    expect(keystoneIndex(tied)).toBe(1);
+  });
   it("returns one route per keystone pick, best duration first", async () => {
     const routes = await optimizeKeystones(
       chicago,
@@ -413,5 +422,24 @@ describe("keystone routes", () => {
     expect(routes[0].keystone.place).toBe(m2); // convenient beats faster
     expect(routes[0].options).toBeGreaterThan(0);
     expect(routes[1].keystone.place).toBe(m1);
+  });
+  it("unrouted alternates count toward nearby options", async () => {
+    const withAlts: Stop[] = [
+      {
+        ...stops[0],
+        candidates: lunches.slice(0, 1),
+        alternates: [place("alt-lunch", 41.901)], // walks to museum-a's area
+        pool: 40,
+      },
+      { ...stops[1], candidates: [m1], pool: 10 },
+    ];
+    const routes = await optimizeKeystones(
+      chicago,
+      withAlts,
+      new Date("2026-11-09T15:00:00Z"),
+      false,
+      async (_a, _b, t) => itinerary(200, t),
+    );
+    expect(routes[0].options).toBe(1);
   });
 });

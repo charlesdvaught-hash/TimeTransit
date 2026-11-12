@@ -315,6 +315,8 @@ export type Stop = {
   candidates: Place[];
   dwell: number;
   pin?: Pin;
+  pool?: number; // raw candidate pool before the routable cap — scarcity signal
+  alternates?: Place[]; // deeper unrouted candidates — options/dropdown pool
 };
 export function pinError(stops: { pin?: Pin }[]) {
   const n = stops.length;
@@ -567,13 +569,15 @@ export async function optimize(
   return best;
 }
 
-// The keystone is the stop with the FEWEST viable candidates — the rare
-// destination that actually shapes the route (a museum among 20 lunch
-// spots). Ties go to the earlier stop.
+// The keystone is the stop with the SMALLEST candidate pool — the rare
+// destination that actually shapes the route (a museum among 50 lunch
+// spots). `pool` is the pre-cap count when resolution provided it; the
+// capped candidates list is the fallback. Ties go to the earlier stop.
 export function keystoneIndex(stops: Stop[]): number {
+  const pool = (s: Stop) => s.pool ?? s.candidates.length;
   let k = 0;
   for (let i = 1; i < stops.length; i++)
-    if (stops[i].candidates.length < stops[k].candidates.length) k = i;
+    if (pool(stops[i]) < pool(stops[k])) k = i;
   return k;
 }
 export type KeystoneRoute = {
@@ -601,7 +605,7 @@ export function routeScore(
   const counted = new Set<string>();
   for (const s of stops) {
     if (s.id === keystoneStopId) continue;
-    for (const c of s.candidates) {
+    for (const c of [...s.candidates, ...(s.alternates ?? [])]) {
       if (picked.has(c.id) || counted.has(c.id)) continue;
       if (places.some((p) => distance(p, c) <= NEAR_ROUTE_KM)) {
         counted.add(c.id);
@@ -666,21 +670,34 @@ export async function optimizeKeystones(
     throw new Error(
       "No trip with distinct places is available. Choose different stops or broaden your searches.",
     );
-  const routes: KeystoneRoute[] = [];
+  // Keystone groups are independent routes — plan them together and let
+  // the fetch queue bound real concurrency (legs inside a route still
+  // sequence, since each departs after the previous arrival + dwell).
   let error: unknown;
-  for (const combos of [...groups.values()].slice(0, maxRoutes)) {
-    try {
-      const chain = await planCombo(origin, combos[0], departure, back, plan);
-      routes.push({
-        keystone: combos[0].find((v) => v.stop.id === kId)!,
-        chain,
-        ...routeScore(chain, stops, kId),
-      });
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") throw e;
-      error = e;
-    }
-  }
+  const routes = (
+    await Promise.all(
+      [...groups.values()].slice(0, maxRoutes).map(async (combos) => {
+        try {
+          const chain = await planCombo(
+            origin,
+            combos[0],
+            departure,
+            back,
+            plan,
+          );
+          return {
+            keystone: combos[0].find((v) => v.stop.id === kId)!,
+            chain,
+            ...routeScore(chain, stops, kId),
+          };
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") throw e;
+          error = e;
+          return null;
+        }
+      }),
+    )
+  ).filter((r): r is KeystoneRoute => r !== null);
   if (!routes.length)
     throw error || new Error("No complete trip could be routed.");
   return routes.sort((a, b) => a.score - b.score);

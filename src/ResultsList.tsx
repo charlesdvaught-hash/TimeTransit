@@ -269,6 +269,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
       }
     };
     resolved?.stop.candidates.forEach(add);
+    resolved?.stop.alternates?.forEach(add);
     for (const v of chain?.visits ?? [])
       if (v !== resolved) searchPlaces(label, v.place, 4).forEach(add);
     if (!pool.length) searchPlaces(label, origin, 6).forEach(add);
@@ -667,7 +668,13 @@ export function ResultsList({ controller }: { controller: TransitController }) {
             const isKeystone =
               chains.find((r) => r.chain === chain)?.keystone.stop.id ===
               v.stop.id;
-            const alts = v.stop.candidates.filter((p) => p.id !== v.place.id);
+            const alts = [
+              ...new Map(
+                [...v.stop.candidates, ...(v.stop.alternates ?? [])].map(
+                  (p) => [p.id, p],
+                ),
+              ).values(),
+            ].filter((p) => p.id !== v.place.id);
             return (
               <div key={v.stop.id}>
                 <small>
@@ -692,7 +699,7 @@ export function ResultsList({ controller }: { controller: TransitController }) {
                       {alts.length} other {v.stop.label} option
                       {alts.length === 1 ? "" : "s"}
                     </summary>
-                    {alts.slice(0, 6).map((p) => (
+                    {alts.slice(0, 8).map((p) => (
                       <button
                         key={p.id}
                         type="button"

@@ -26,7 +26,14 @@ import { plan, planOptions, reachable, search } from "./api";
 import { parseQuery, rankPlaces, shouldParse, toTerm } from "./semantic"; // STAGE-1
 import { nameScore } from "./suggestions"; // STAGE-1
 import type { CachedPlan, SemanticParseResult } from "./contracts"; // STAGE-1
-import { inCoverage, reachableStops, scan } from "./scan";
+import {
+  arrivalAtPoint,
+  inCoverage,
+  reachableStops,
+  scan,
+  type ScanIndex,
+  type ScanResult,
+} from "./scan";
 import { loadScanIndex } from "./scanData";
 import { fetchTripDelays } from "./gtfsrt"; // WAVE-2
 import { liveDeparturesChained } from "./fallbackEta";
@@ -52,6 +59,48 @@ export type TripCacheBridge = {
   setOfflineCache: Dispatch<SetStateAction<CachedPlan | null>>;
   restoreCachedPlan: () => boolean;
 };
+// Prospect-stage candidate timing: local scan arrival (free in coverage)
+// or one-to-all stop times + walk-off (one call outside it), with a
+// direct-walk floor. Returns undefined when no estimate can see the
+// place — the caller decides whether a real plan() is warranted.
+export function candidateTimer(args: {
+  origin: Place;
+  start: Date;
+  scan: Promise<{ idx: ScanIndex; r: ScanResult } | undefined>;
+  oneToAll: () => Promise<ReachableStop[]>;
+  walkSpeed: number;
+  maxWalkM: number;
+}): (place: Place) => Promise<number | undefined> {
+  let oneToAllP: Promise<ReachableStop[]> | undefined;
+  return async (place) => {
+    const s = await args.scan;
+    let est: number | undefined;
+    if (s) {
+      const at = arrivalAtPoint(
+        s.idx,
+        s.r,
+        place,
+        args.walkSpeed,
+        args.maxWalkM,
+      );
+      if (at !== undefined) est = (at - args.start.getTime()) / 1000;
+    } else {
+      oneToAllP ??= args.oneToAll();
+      const stops = await oneToAllP;
+      let best = Infinity;
+      for (const st of stops) {
+        const km = distance(place, st);
+        if (km * 1000 <= args.maxWalkM)
+          best = Math.min(best, st.minutes * 60 + (km * 1000) / args.walkSpeed);
+      }
+      if (Number.isFinite(best)) est = best;
+    }
+    const walkM = distance(args.origin, place) * 1000;
+    if (walkM <= args.maxWalkM)
+      est = Math.min(est ?? Infinity, walkM / args.walkSpeed);
+    return Number.isFinite(est) ? est : undefined;
+  };
+}
 export function useTripSearch({
   origin,
   departure,
@@ -492,9 +541,43 @@ export function useTripSearch({
               corridor.push({ lat: idx.stops[si].la, lon: idx.stops[si].lo });
         })
         .catch(() => undefined);
+      // GTFS-RT delays only need the index + departure — start fetching now
+      // so the call overlaps candidate resolution instead of waiting on it
+      const delaysPromise = scanPromise.then((idx) =>
+        idx &&
+        inCoverage(idx, origin) &&
+        start.getTime() - Date.now() < 2 * 3600 * 1000
+          ? trySource("octa-rt", () => fetchTripDelays(c.signal), {
+              timeoutMs: 6_000,
+            })
+          : undefined,
+      );
       const dedupe = (list: Place[]) => [
         ...new Map(list.map((p) => [p.id, p])).values(),
       ]; // STAGE-4
+      // Tiered candidate timing — prospect ranking, not lock-in. Local
+      // scan costs nothing; one-to-all is 1 call outside coverage; a real
+      // plan() only runs for candidates the estimates can't see (stale
+      // index, walks beyond maxWalkM). The routes a user actually sees
+      // are still fully planned leg-by-leg by optimizeKeystones.
+      const scanOpts = {
+        walkSpeed: preferences.walkingSpeed,
+        maxWalkM: preferences.walkDistance,
+      };
+      const estimate = candidateTimer({
+        origin,
+        start,
+        scan: scanPromise.then((idx) =>
+          idx && inCoverage(idx, origin)
+            ? { idx, r: scan(idx, origin, start.getTime(), scanOpts) }
+            : undefined,
+        ),
+        oneToAll: () =>
+          reachable(origin, start, c.signal, 60).catch(
+            () => [] as ReachableStop[],
+          ),
+        ...scanOpts,
+      });
       const resolved = await resolveTripCandidates(
         segments.map((label, i) => {
           const m = /^([\\^$~])\s*(.+)$/.exec(label.trim());
@@ -528,8 +611,10 @@ export function useTripSearch({
               ...r,
             ]);
           }),
-        (place) =>
-          plan(
+        async (place) => {
+          const est = await estimate(place);
+          if (est !== undefined) return { duration: est };
+          return plan(
             origin,
             place,
             start,
@@ -537,18 +622,12 @@ export function useTripSearch({
             preferences,
             recordProviders,
             arriveBy,
-          ),
+          );
+        },
         c.signal,
       );
       const scanIdx = await scanPromise; // settled alongside corridorReady
-      const delays =
-        scanIdx &&
-        inCoverage(scanIdx, origin) &&
-        start.getTime() - Date.now() < 2 * 3600 * 1000
-          ? await trySource("octa-rt", () => fetchTripDelays(c.signal), {
-              timeoutMs: 6_000,
-            })
-          : undefined;
+      const delays = await delaysPromise; // started before resolution
       const order =
         scanIdx && inCoverage(scanIdx, origin)
           ? scanOrder(scanIdx, origin, resolved, start.getTime(), {
