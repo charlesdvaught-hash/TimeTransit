@@ -36,6 +36,10 @@ Verify any change with `npx.cmd tsc -b` + `npx.cmd vitest run` before calling it
   overlay. Absent → link-only mode. Client-visible; restrict by HTTP
   referrer in Google Cloud console.
 - `VITE_BASE` — optional Vite base path override for the production build.
+  **Git Bash trap:** prefix-assigning it (`VITE_BASE=/TimeTransit/ npm run build`)
+  gets MSYS path-converted into `Program Files/Git/TimeTransit/` — the Pages
+  deploy then 404s every asset. Use `MSYS_NO_PATHCONV=1` or `MSYS2_ARG_CONV_EXCL`
+  on the same command, then confirm `dist/index.html` says `/TimeTransit/`.
   Defaults to `/TimeTransit/` (GitHub Pages project path). Set before
   `npm run build` if hosting elsewhere.
 
