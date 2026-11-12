@@ -19,7 +19,7 @@ const meters = (
   b: { lat: number; lon: number },
 ) => haversine(a, { la: b.lat, lo: b.lon });
 
-const near = (
+export const near = (
   index: ScanIndex,
   p: { lat: number; lon: number },
   maxM = 250,
@@ -36,9 +36,9 @@ const near = (
   return best;
 };
 
-type ActiveTrip = { base: number; i?: string; t: number[] };
+export type ActiveTrip = { base: number; i?: string; t: number[] };
 // index trip serving fromIdx -> ... -> toIdx departing fromIdx ~= schedMs
-function matchTrip(
+export function matchTrip(
   index: ScanIndex,
   active: ActiveTrip[][],
   fromIdx: number,
@@ -66,7 +66,7 @@ function matchTrip(
   return found;
 }
 
-const delayMsAt = (
+export const delayMsAt = (
   upd: Map<string, { d?: number; t?: number }> | undefined,
   stopId: string,
   schedMs: number,

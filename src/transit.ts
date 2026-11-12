@@ -1,4 +1,5 @@
 import { distance, type Leg, type TripChain } from "./core";
+import type { LiveSource } from "./liveSource";
 export type LiveDeparture = {
   routeName: string;
   headsign?: string;
@@ -9,6 +10,7 @@ export type LiveDeparture = {
   delay: number;
   realtime: boolean;
   cancelled: boolean;
+  source?: LiveSource; // which provider answered — scoreboard tagging seam
 };
 type TransitStop = {
   global_stop_id: string;
@@ -208,6 +210,7 @@ export async function liveDepartures(
       delay: (expected - scheduled) / 1000,
       realtime: !!match.item.is_real_time,
       cancelled: !!match.item.is_cancelled,
+      source: "transit",
     };
   });
 }

@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import type { Itinerary, Place } from "./core";
 import { plan } from "./api";
 import { departureSnapshot } from "./tripCandidates";
-import { departuresNear, type NearbyDeparture } from "./transit";
+import type { NearbyDeparture } from "./transit";
+import { departuresNearChained } from "./fallbackEta";
 import { readBookmarks, writeBookmarks } from "./storage";
 import type { SavedPlace } from "./contracts";
 import type { Preferences } from "./preferences";
@@ -116,12 +117,12 @@ export function useSavedPlaces({
       c.abort();
     };
   }, [origin.lat, origin.lon, bookmarks, departure, timeMode]);
-  // "Nearby now": next departures around the origin — self-disables
-  // without a Transit key/relay, so it just stays empty there
+  // "Nearby now": next departures around the origin — Transit first, index
+  // schedule + feed delays fill in when Transit is down or keyless
   useEffect(() => {
     const c = new AbortController();
     const timer = setTimeout(() => {
-      departuresNear(origin, c.signal)
+      departuresNearChained(origin, c.signal)
         .then((d) => {
           if (!c.signal.aborted) setNearbyNow(d);
         })

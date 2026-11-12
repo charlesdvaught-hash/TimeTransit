@@ -28,15 +28,13 @@ import type { CachedPlan, SemanticParseResult } from "./contracts"; // STAGE-1
 import { inCoverage, reachableStops, scan } from "./scan";
 import { loadScanIndex } from "./scanData";
 import { fetchTripDelays } from "./gtfsrt"; // WAVE-2
+import { liveDeparturesChained } from "./fallbackEta";
+import { trySource } from "./liveSource";
 import { loadPlaces, placesInCorridor, searchPlaces } from "./places";
 import { searchPlaces as gmapsSearchPlaces } from "./gmaps"; // PHASE-B
 import { observation } from "./reliability";
 import { addObservations } from "./reliabilityStore";
-import {
-  liveDepartures as fetchLiveDepartures,
-  transferViolations,
-  type LiveDeparture,
-} from "./transit";
+import { transferViolations, type LiveDeparture } from "./transit";
 import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
 import { offline } from "./useTripCache"; // WAVE-2
 import type { Preferences } from "./preferences";
@@ -140,7 +138,7 @@ export function useTripSearch({
       );
       return first < 0 ? [] : [{ trip, leg: trip.legs[first], index: first }];
     });
-    fetchLiveDepartures(
+    liveDeparturesChained(
       refs.map((x) => x.leg),
       c.signal,
     )
@@ -331,7 +329,9 @@ export function useTripSearch({
         const t0 = start.getTime();
         const delays =
           t0 - Date.now() < 2 * 3600 * 1000
-            ? await fetchTripDelays(c.signal).catch(() => undefined)
+            ? await trySource("octa-rt", () => fetchTripDelays(c.signal), {
+                timeoutMs: 6_000,
+              })
             : undefined;
         if (c.signal.aborted) return;
         // STAGE-2
@@ -540,7 +540,9 @@ export function useTripSearch({
         scanIdx &&
         inCoverage(scanIdx, origin) &&
         start.getTime() - Date.now() < 2 * 3600 * 1000
-          ? await fetchTripDelays(c.signal).catch(() => undefined)
+          ? await trySource("octa-rt", () => fetchTripDelays(c.signal), {
+              timeoutMs: 6_000,
+            })
           : undefined;
       const order =
         scanIdx && inCoverage(scanIdx, origin)
@@ -606,7 +608,7 @@ export function useTripSearch({
           Date.now() - lastLiveCompare >= 60000
         ) {
           lastLiveCompare = Date.now();
-          fetchLiveDepartures(
+          liveDeparturesChained(
             refs.map((r) => r.leg!),
             c.signal,
           )

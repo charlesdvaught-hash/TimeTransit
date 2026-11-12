@@ -3,6 +3,7 @@ import type * as maplibregl from "maplibre-gl";
 import { type Pin, type Place } from "./core";
 import { nearby } from "./api";
 import { fetchAlerts, type ServiceAlert } from "./gtfsrt"; // WAVE-2
+import { trySource } from "./liveSource";
 import { loadBasemap, saveBasemap, type Basemap } from "./basemap";
 import { geolocationGranted, useUserPosition } from "./useUserPosition";
 import { useSavedPlaces } from "./useSavedPlaces"; // WAVE-1
@@ -238,11 +239,11 @@ export function useTimeTransit() {
   useEffect(() => {
     if (!selected && !nearbyNow.length) return;
     let live = true;
-    fetchAlerts()
-      .then((a) => {
-        if (live) setAlerts(a);
-      })
-      .catch(() => {});
+    trySource("octa-rt", () => fetchAlerts(), { timeoutMs: 6_000 }).then(
+      (a) => {
+        if (live && a) setAlerts(a);
+      },
+    );
     return () => {
       live = false;
     };

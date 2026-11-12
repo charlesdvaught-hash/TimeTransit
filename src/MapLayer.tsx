@@ -31,12 +31,8 @@ import {
   tickAmbient,
 } from "./mapLayers";
 import { nearestPlaces } from "./places";
-import {
-  departuresNear,
-  routeInfoAt,
-  type NearbyDeparture,
-  type RouteInfo,
-} from "./transit";
+import { routeInfoAt, type NearbyDeparture, type RouteInfo } from "./transit";
+import { departuresNearChained } from "./fallbackEta";
 import { hasSavedOrigin } from "./preferences";
 import { GmapsLink } from "./GmapsLink";
 import type { Place } from "./core";
@@ -158,7 +154,7 @@ export function MapLayer({
       const places = nearestPlaces(at);
       setPlaceCard({ places, at });
       setRouteCard(null);
-      departuresNear(at)
+      departuresNearChained(at)
         .then((deps) =>
           setPlaceCard((c) => (c?.at === at ? { ...c, deps } : c)),
         )

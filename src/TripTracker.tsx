@@ -10,6 +10,7 @@ import { useTripTracking } from "./useTripTracking";
 import { addObservations } from "./reliabilityStore";
 import { observation } from "./reliability";
 import { fetchTripDelays, fetchVehiclePositions } from "./gtfsrt";
+import { trySource } from "./liveSource";
 import { liveVehicle } from "./transit";
 import { loadScanIndex } from "./scanData";
 import { inCoverage } from "./scan";
@@ -63,8 +64,10 @@ export function TripTracker({
       const index = await loadScanIndex().catch(() => undefined);
       if (!alive || !index || !inCoverage(index, w.fix)) return;
       const [delays, vehicles] = await Promise.all([
-        fetchTripDelays().catch(() => undefined),
-        fetchVehiclePositions().catch(() => undefined),
+        trySource("octa-rt", () => fetchTripDelays(), { timeoutMs: 6_000 }),
+        trySource("octa-rt", () => fetchVehiclePositions(), {
+          timeoutMs: 6_000,
+        }),
       ]);
       if (!alive) return;
       const leg = transit[w.legIndex];
@@ -75,7 +78,10 @@ export function TripTracker({
       // GTFS-RT has no match (non-OCTA leg or missing trip) — try
       // Transit's vehicle feed, which covers all agencies it serves.
       if (!bus && leg)
-        bus = (await liveVehicle(leg).catch(() => undefined)) ?? null;
+        bus =
+          (await trySource("transit", () => liveVehicle(leg), {
+            timeoutMs: 6_000,
+          })) ?? null;
       onBus?.(bus);
       setBusInfo(bus);
       const r = watchJourney({
