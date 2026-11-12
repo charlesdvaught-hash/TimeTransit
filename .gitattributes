@@ -1,0 +1,15 @@
+* text=auto
+
+# Windows-native scripts need CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Shell scripts need LF even on Windows checkouts
+*.sh text eol=lf
+
+# Minified/build artifacts — never diff as text
+*.min.js -text
+*.min.css -text
+*.map -text
+dist/ -text
