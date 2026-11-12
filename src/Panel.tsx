@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent } from "react";
 import {
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   LocateFixed,
   Navigation,
@@ -18,6 +20,156 @@ import { delayText, minutes, time, transfers } from "./display";
 import { ResultsList } from "./ResultsList";
 import { AdventureAssistant } from "./AdventureAssistant"; // STAGE-6
 import type { TransitController } from "./useTimeTransit";
+
+// Touch-friendly departure/arrival picker: ‹ › steppers (15-min and 1-day)
+// plus tap-the-value dropdowns for hour/minute/AM-PM and day jumps —
+// replaces the native datetime-local input whose tiny icons were the
+// mobile pain point.
+function WhenPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState<"" | "time" | "date">("");
+  const d = new Date(value);
+  if (isNaN(+d)) return null;
+  const toLocal = (x: Date) =>
+    new Date(x.getTime() - x.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+  const bump = (mins: number) =>
+    onChange(toLocal(new Date(d.getTime() + mins * 60000)));
+  const bumpDay = (days: number) => {
+    const x = new Date(d);
+    x.setDate(x.getDate() + days);
+    onChange(toLocal(x));
+  };
+  const setPart = (patch: { h?: number; m?: number; day?: number }) => {
+    const x = new Date(d);
+    if (patch.day !== undefined) x.setDate(patch.day);
+    if (patch.h !== undefined) x.setHours(patch.h);
+    if (patch.m !== undefined) x.setMinutes(patch.m);
+    onChange(toLocal(x));
+  };
+  const h12 = d.getHours() % 12 || 12;
+  const pm = d.getHours() >= 12;
+  const days = Array.from({ length: 62 }, (_, i) => {
+    const x = new Date();
+    x.setDate(x.getDate() + i);
+    return x;
+  });
+  return (
+    <span className="when">
+      <span className="when-chip">
+        <button aria-label="Earlier time" onClick={() => bump(-15)}>
+          <ChevronLeft size={14} />
+        </button>
+        <button
+          className="when-value"
+          aria-expanded={open === "time"}
+          onClick={() => setOpen(open === "time" ? "" : "time")}
+        >
+          {d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+        </button>
+        <button aria-label="Later time" onClick={() => bump(15)}>
+          <ChevronRight size={14} />
+        </button>
+        {open === "time" && (
+          <span className="when-drop">
+            <select
+              aria-label="Hour"
+              value={h12}
+              onChange={(e) =>
+                setPart({
+                  h: (+e.target.value % 12) + (pm ? 12 : 0),
+                })
+              }
+            >
+              {Array.from({ length: 12 }, (_, i) => (
+                <option key={i + 1} value={i + 1}>
+                  {i + 1}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Minute"
+              value={Math.floor(d.getMinutes() / 15) * 15}
+              onChange={(e) => setPart({ m: +e.target.value })}
+            >
+              {[0, 15, 30, 45].map((m) => (
+                <option key={m} value={m}>
+                  :{String(m).padStart(2, "0")}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="AM or PM"
+              value={pm ? "PM" : "AM"}
+              onChange={(e) =>
+                setPart({ h: (h12 % 12) + (e.target.value === "PM" ? 12 : 0) })
+              }
+            >
+              <option>AM</option>
+              <option>PM</option>
+            </select>
+          </span>
+        )}
+      </span>
+      <span className="when-chip">
+        <button aria-label="Previous day" onClick={() => bumpDay(-1)}>
+          <ChevronLeft size={14} />
+        </button>
+        <button
+          className="when-value"
+          aria-expanded={open === "date"}
+          onClick={() => setOpen(open === "date" ? "" : "date")}
+        >
+          {d.toLocaleDateString([], {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+          })}
+        </button>
+        <button aria-label="Next day" onClick={() => bumpDay(1)}>
+          <ChevronRight size={14} />
+        </button>
+        {open === "date" && (
+          <span className="when-drop">
+            <select
+              aria-label="Day"
+              value={days.findIndex(
+                (x) =>
+                  x.getDate() === d.getDate() && x.getMonth() === d.getMonth(),
+              )}
+              onChange={(e) => {
+                const x = new Date(days[+e.target.value]);
+                x.setHours(d.getHours(), d.getMinutes());
+                onChange(toLocal(x));
+              }}
+            >
+              {days.map((x, i) => (
+                <option key={i} value={i}>
+                  {i === 0
+                    ? "Today"
+                    : i === 1
+                      ? "Tomorrow"
+                      : x.toLocaleDateString([], {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                </option>
+              ))}
+            </select>
+          </span>
+        )}
+      </span>
+    </span>
+  );
+}
+
 export function Panel({ controller }: { controller: TransitController }) {
   const {
     origin,
@@ -176,12 +328,14 @@ export function Panel({ controller }: { controller: TransitController }) {
             onChange={(e) => {
               const v = e.target.value as "now" | "depart" | "arrive";
               controller.setTimeMode(v);
-              if (v !== "now" && !departure)
+              if (v !== "now" && !departure) {
+                const seed = new Date(Math.ceil(Date.now() / 900000) * 900000);
                 setDeparture(
-                  new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+                  new Date(seed.getTime() - seed.getTimezoneOffset() * 60000)
                     .toISOString()
                     .slice(0, 16),
                 );
+              }
             }}
           >
             <option value="now">Leave now</option>
@@ -189,16 +343,7 @@ export function Panel({ controller }: { controller: TransitController }) {
             <option value="arrive">Arrive by</option>
           </select>
           {controller.timeMode !== "now" && (
-            <input
-              aria-label={
-                controller.timeMode === "arrive"
-                  ? "Arrival time"
-                  : "Departure time"
-              }
-              type="datetime-local"
-              value={departure}
-              onChange={(e) => setDeparture(e.target.value)}
-            />
+            <WhenPicker value={departure} onChange={setDeparture} />
           )}
         </div>
         {offlineCache && (

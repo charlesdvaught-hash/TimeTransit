@@ -377,11 +377,63 @@ header {
   font-size: 10px;
   color: #c1d1e3;
 }
-.departure input {
-  width: 100%;
-  padding: 8px;
+.when {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.when-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   background: #ffffff08;
-  border-radius: 5px;
+  border: 1px solid #4b6c9740;
+  border-radius: 8px;
+  padding: 2px;
+}
+.when-chip > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 4px;
+  color: #8fa5bd;
+  border-radius: 6px;
+}
+.when-chip > button:active {
+  background: #ffffff14;
+}
+.when-chip > .when-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: #dce9f7;
+  padding: 4px 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.when-drop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  background: #17202cee;
+  border: 1px solid #4b6c9766;
+  border-radius: 10px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px #00000066;
+}
+.when-drop select {
+  font-size: 14px;
+  padding: 6px 8px;
+  background: #0d1420;
+  color: #dce9f7;
+  border: 1px solid #4b6c9755;
+  border-radius: 6px;
 }
 .search-box {
   display: flex;
