@@ -384,9 +384,14 @@ OPEN QUESTIONS FOR DAVE
 2. Any existing relationship/budget for data providers? Compare Transit
    API paid tier pricing vs OBA self-host TCO before committing.
 3. Do OCTA/Metro GTFS-RT feeds actually carry occupancy? (30-min probe.)
-4. Metro Swiftly key: free signup at goswift.ly/realtime-api-key — worth
-   grabbing regardless of which play wins, since it's also the cheap-path
-   feed for extending gtfsrt.ts.
+4. Metro Swiftly key: VERIFIED 11-12 — developer.metro.net/api/ officially
+   routes RT access through Swiftly's free key request FORM (not instant
+   signup; license agreement + documented call-volume limits apply).
+   agencyKeys lametro / lametro-rail; protobuf OR JSON output (JSON means
+   no protobuf decode work on this path). Swiftly-the-paid-platform is a
+   separate product — agency feed access is the free developer program.
+   Worth grabbing regardless of which play wins, since it's also the
+   cheap-path feed for extending gtfsrt.ts.
 
 REVISED RECOMMENDATION (after Dave's constraints)
 --------------------------------------------------------------------------------
@@ -416,7 +421,10 @@ SUGGESTED NEXT STEPS (no code yet)
       WebSocket alt exists, unverified. Swiftly = Metro RT path.
 - [x] OCTA relay health: /gtfsrt/tripupdates 32KB, /VehiclePositions 30KB,
       /servicealerts live via deployed worker — feed is healthy today.
-- [ ] Probe api.goswift.ly free key terms for Metro feeds.
+- [x] Probe api.goswift.ly free key terms for Metro feeds: free key via
+      request form (per developer.metro.net/api/ — Metro's official RT
+      channel), Authorization header, JSON available. Next: request a key
+      + decode check on gtfs-rt-trip-updates for a known route.
 - [ ] Probe OCTA GTFS-RT occupancy fields (decode VehiclePositions for
       occupancy_status / occupancy_percentage).
 - [ ] REMOTE spike (replaces local): Oracle signup -> A1 VM in

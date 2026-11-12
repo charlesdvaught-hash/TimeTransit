@@ -1,0 +1,17 @@
+# OCTA overlays for OneBusAway/docker's docker-compose.standalone.yml.
+# Usage on the VM (inside the cloned OneBusAway/docker repo):
+#   docker compose -f docker-compose.standalone.yml -f docker-compose.override.yml up -d oba_database_pg oba_app
+services:
+  oba_app:
+    environment:
+      - TZ=America/Los_Angeles
+      - AGENCY_ID=1 # OCTA's agency_id in their GTFS
+      - GTFS_URL=https://octa.net/current/google_transit.zip
+      - GTFS_TIDY_ARGS=
+      - TRIP_UPDATES_URL=https://api.octa.net/GTFSRealTime/protoBuf/TripUpdates.aspx
+      - VEHICLE_POSITIONS_URL=https://api.octa.net/GTFSRealTime/protoBuf/VehiclePositions.aspx
+      - ALERTS_URL=https://api.octa.net/GTFSRealTime/protoBuf/ServiceAlerts.aspx
+      - REFRESH_INTERVAL=30
+      # API key required on every /api/where/* call; set your own before
+      # exposing :8080 publicly (OBA_API_KEY env on the VM, or edit here)
+      - TEST_API_KEY=${OBA_API_KEY:-test}

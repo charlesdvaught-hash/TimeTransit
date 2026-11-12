@@ -107,6 +107,12 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) =>
             path.replace(/^\/gtfsrt/, "/GTFSRealTime/protoBuf") + ".aspx",
         },
+        // Relay-side /api/* (arrivals, health, state sync) — dev proxies to
+        // the deployed worker so the OBA-shaped backend works locally too.
+        "/api": {
+          target: "https://transit-relay.charlesdvaught-34c.workers.dev",
+          changeOrigin: true,
+        },
       },
     },
   };

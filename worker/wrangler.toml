@@ -2,6 +2,10 @@ name = "transit-relay"
 main = "transit-relay.js"
 compatibility_date = "2025-01-01"
 
+# Watchdog probe — every 5 min writes upstream health to TT_STATE_KV.
+[triggers]
+crons = ["*/5 * * * *"]
+
 [vars]
 ALLOWED_ORIGINS = "http://localhost:5173, https://charlesdvaught-hash.github.io"
 LLM_PROVIDERS = "groq,gemini"

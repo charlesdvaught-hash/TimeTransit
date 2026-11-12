@@ -22,6 +22,67 @@ import {
 import { delayMsAt, matchTrip, near as nearestStop } from "./watchdog";
 
 const TZ = "America/Los_Angeles";
+const RELAY = import.meta.env.VITE_TRANSIT_RELAY;
+
+// The relay's own OBA-shaped backend (worker /api/arrivals): server-decoded
+// OCTA trip-updates for one stop. Sparse — the feed only reports each
+// vehicle's next stop — but where it hits, it's a real approaching
+// vehicle's prediction, stronger than index schedule + last-known delay.
+async function relayArrivals(
+  stopId: string,
+  signal?: AbortSignal,
+): Promise<
+  {
+    tripId: string;
+    routeId?: string;
+    delaySec?: number;
+    predictedTime?: number;
+  }[]
+> {
+  const r = await fetch(
+    `${RELAY || ""}/api/arrivals?stop=${encodeURIComponent(stopId)}`,
+    { signal },
+  );
+  if (!r.ok) throw new Error(`arrivals ${r.status}`);
+  const j = await r.json();
+  return Array.isArray(j?.arrivals) ? j.arrivals : [];
+}
+
+// Leg -> nearest index stop -> relay arrivals, route-matched. Realtime
+// answer straight from the feed; undefined when no vehicle is inbound.
+async function obaDeparture(
+  index: ScanIndex,
+  leg: Leg,
+  signal: AbortSignal | undefined,
+  now: number,
+): Promise<LiveDeparture | undefined> {
+  const fromIdx = nearestStop(index, leg.from);
+  if (fromIdx < 0) return;
+  const stop = index.stops[fromIdx];
+  const list = await trySource("oba", () => relayArrivals(stop.i, signal), {
+    timeoutMs: 6_000,
+  });
+  if (!list?.length) return;
+  const norm = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const want = norm(leg.routeShortName);
+  const hit =
+    list.find((a) => norm(a.routeId) === want) ??
+    (list.length === 1 ? list[0] : undefined);
+  if (!hit?.predictedTime || hit.predictedTime < now - 300_000) return;
+  const schedMs = Date.parse(leg.scheduledStartTime || leg.startTime);
+  return {
+    routeName: leg.routeShortName || leg.mode,
+    headsign: leg.headsign,
+    stopName: stop.n,
+    network: leg.agencyName || "OCTA",
+    scheduledTime: new Date(schedMs).toISOString(),
+    expectedTime: new Date(hit.predictedTime).toISOString(),
+    delay: hit.delaySec ?? (hit.predictedTime - schedMs) / 1000,
+    realtime: true,
+    cancelled: false,
+    source: "oba",
+  };
+}
 
 async function indexDelays(signal?: AbortSignal) {
   const index = await loadScanIndex().catch(() => undefined);
@@ -127,8 +188,9 @@ export async function departuresNearChained(
   return indexDeparturesNear(index, point, delays, Date.now());
 }
 
-// Per-leg ETA chain: Transit first; legs it can't answer fall back to index
-// schedule + feed delay (OCTA coverage). Same shape as liveDepartures().
+// Per-leg ETA chain: Transit first (crowd-sourced positions + route
+// confirmation); legs it can't answer try the relay's OBA-shaped arrivals
+// (real approaching vehicles), then index schedule + feed delay.
 export async function liveDeparturesChained(
   legs: (Leg | undefined)[],
   signal?: AbortSignal,
@@ -152,6 +214,9 @@ export async function liveDeparturesChained(
   if (!index) return out;
   const now = Date.now();
   for (const x of defined)
-    out[x.i] = out[x.i] ?? indexDeparture(index, x.leg, delays, now);
+    out[x.i] =
+      out[x.i] ??
+      (await obaDeparture(index, x.leg, signal, now)) ??
+      indexDeparture(index, x.leg, delays, now);
   return out;
 }

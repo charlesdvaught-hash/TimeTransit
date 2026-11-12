@@ -693,6 +693,206 @@ async function events(env, cors, url, ip) {
   return Response.json({ events: list, sources }, { headers: cors });
 }
 
+// ---- Wave-3: feed resilience + OBA-shaped arrivals + watchdog ----
+
+// Minimal GTFS-RT wire decoder — ported from src/gtfsrt.ts (same field
+// numbers, same behavior). trip_id -> stop_id -> { d?: delay, t?: time }.
+function pbFields(buf, start = 0, end = buf.length) {
+  const out = [];
+  let i = start;
+  const varint = () => {
+    let v = 0,
+      s = 0n,
+      b = 0;
+    do {
+      b = buf[i++];
+      v = Number(BigInt(v) | (BigInt(b & 0x7f) << s));
+      s += 7n;
+    } while (b & 0x80 && i < end);
+    return v;
+  };
+  while (i < end) {
+    const tag = varint();
+    const f = tag >> 3,
+      wire = tag & 7;
+    if (wire === 0) out.push({ f, wire, v: varint() });
+    else if (wire === 1) {
+      out.push({ f, wire, v: buf.subarray(i, i + 8) });
+      i += 8;
+    } else if (wire === 2) {
+      const len = varint();
+      out.push({ f, wire, v: buf.subarray(i, i + len) });
+      i += len;
+    } else if (wire === 5) {
+      out.push({ f, wire, v: buf.subarray(i, i + 4) });
+      i += 4;
+    } else break;
+  }
+  return out;
+}
+const pbStr = (v) =>
+  v instanceof Uint8Array ? new TextDecoder().decode(v) : "";
+const pbMsgs = (list, f) => list.filter((x) => x.f === f && x.wire === 2);
+const pbNum = (list, f) =>
+  list.find((x) => x.f === f && typeof x.v === "number")?.v;
+
+// Decode trip updates into per-stop arrivals for ONE requested stop.
+// TripDescriptor fields: 1 trip_id, 5 route_id, 6 direction_id.
+// OCTA's static GTFS zero-pads stop_ids ("0002") while the RT feed emits
+// them unpadded ("2") — compare the stripped form.
+function arrivalsForStop(buf, stopId) {
+  const want = stopId.replace(/^0+(?=\d)/, "");
+  const out = [];
+  for (const ent of pbMsgs(pbFields(buf), 2)) {
+    for (const tu of pbMsgs(pbFields(ent.v), 3)) {
+      const tuF = pbFields(tu.v);
+      const tripMsg = pbMsgs(tuF, 1)[0];
+      if (!tripMsg) continue;
+      const tF = pbFields(tripMsg.v);
+      const tripId = pbStr(tF.find((x) => x.f === 1)?.v);
+      const routeId = pbStr(tF.find((x) => x.f === 5)?.v);
+      for (const stu of pbMsgs(tuF, 2)) {
+        const sF = pbFields(stu.v);
+        const got = pbStr(sF.find((x) => x.f === 4)?.v);
+        if (got !== stopId && got !== want) continue;
+        const arr = { tripId, routeId };
+        for (const ev of [pbMsgs(sF, 2)[0], pbMsgs(sF, 3)[0]]) {
+          if (!ev) continue;
+          const eF = pbFields(ev.v);
+          const d = pbNum(eF, 1),
+            t = pbNum(eF, 2);
+          if (d !== undefined) arr.delaySec = d;
+          if (t !== undefined) arr.predictedTime = t * 1000;
+        }
+        if (arr.predictedTime !== undefined || arr.delaySec !== undefined)
+          out.push(arr);
+      }
+    }
+  }
+  return out;
+}
+
+// Cache-API read-through for the OCTA feeds: fresh <30s serves from cache,
+// upstream failures serve the last good copy instead of erroring. This is
+// the resilience layer — an api.octa.net 522 becomes invisible.
+const FEED_TTL_MS = 30_000;
+async function cachedFeed(name) {
+  const cache = caches.default;
+  const key = new Request(`https://feed-cache.internal/${name}`);
+  const hit = await cache.match(key);
+  const hitAge = hit
+    ? Date.now() - Number(hit.headers.get("x-stored-at") || 0)
+    : 0;
+  if (hit && hitAge < FEED_TTL_MS)
+    return { body: await hit.arrayBuffer(), stale: false, age: hitAge };
+  try {
+    const up = await fetch(`${GTFSRT}/${name}.aspx`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!up.ok) throw new Error(`upstream ${up.status}`);
+    const body = await up.arrayBuffer();
+    const stored = new Response(body, {
+      headers: {
+        "content-type": "application/octet-stream",
+        "cache-control": "public, max-age=3600",
+        "x-stored-at": String(Date.now()),
+      },
+    });
+    await cache.put(key, stored);
+    return { body, stale: false, age: 0 };
+  } catch (e) {
+    if (hit)
+      return { body: await hit.arrayBuffer(), stale: true, age: hitAge };
+    throw e;
+  }
+}
+
+// /api/arrivals?stop=<stop_id> — OBA-slim shape: the same answers OBA's
+// arrivals-and-departures-for-stop gives, decoded server-side so the
+// client (and future providers) get JSON instead of protobuf.
+async function arrivals(cors, url, ip) {
+  const retry = bucket(nearbyIps, ip, 30, 60000);
+  if (retry) return limited(retry, cors);
+  const stopId = (url.searchParams.get("stop") || "").trim();
+  if (!stopId)
+    return Response.json(
+      { error: "stop param required" },
+      { status: 400, headers: cors },
+    );
+  let feed;
+  try {
+    feed = await cachedFeed("tripupdates");
+  } catch (e) {
+    return Response.json(
+      { error: `upstream request failed (${e.message})` },
+      { status: 502, headers: cors },
+    );
+  }
+  const list = arrivalsForStop(new Uint8Array(feed.body), stopId)
+    .filter(
+      (a) =>
+        a.predictedTime === undefined ||
+        a.predictedTime > Date.now() - 300_000,
+    )
+    .sort((a, b) => (a.predictedTime || Infinity) - (b.predictedTime || Infinity))
+    .slice(0, 8);
+  return Response.json(
+    {
+      stopId,
+      generatedAt: Date.now(),
+      stale: feed.stale,
+      feedAgeMs: feed.age,
+      source: "octa-gtfsrt",
+      arrivals: list.map((a) => ({ ...a, realtime: true })),
+    },
+    { headers: cors },
+  );
+}
+
+// /api/health — last watchdog probe result, plus freshness. The cron fills
+// this; if KV is empty the worker is still alive but the probe hasn't run.
+async function health(env, cors) {
+  const stored = env.TT_STATE_KV
+    ? await env.TT_STATE_KV.get("health:latest", "json").catch(() => null)
+    : null;
+  return Response.json(
+    { ok: true, worker: "up", now: Date.now(), probe: stored },
+    { headers: cors },
+  );
+}
+
+// Cron probe — every 5 min, checks each upstream the app depends on and
+// records a compact verdict in KV. ~288 writes/day, under the free cap.
+async function runProbe(env) {
+  const check = async (name, url, opts = {}) => {
+    const t = Date.now();
+    try {
+      const r = await fetch(url, {
+        signal: AbortSignal.timeout(8000),
+        ...opts,
+      });
+      const body = await r.arrayBuffer();
+      return { ok: r.ok, status: r.status, ms: Date.now() - t, bytes: body.byteLength };
+    } catch (e) {
+      return { ok: false, ms: Date.now() - t, error: String(e).slice(0, 80) };
+    }
+  };
+  const probe = {
+    ts: Date.now(),
+    octa_tripupdates: await check("tu", `${GTFSRT}/tripupdates.aspx`),
+    octa_vehicles: await check("vp", `${GTFSRT}/VehiclePositions.aspx`),
+    transitous: await check(
+      "motis",
+      `${MOTIS}/api/v1/map/stops?min=33.7,-117.9&max=33.71,-117.89`,
+      { headers: MOTIS_HEADERS },
+    ),
+    photon: await check("photon", "https://photon.komoot.io/api/?q=test&limit=1"),
+  };
+  if (env.TT_STATE_KV)
+    await env.TT_STATE_KV.put("health:latest", JSON.stringify(probe));
+  return probe;
+}
+
 // ---- W1: KV state sync + MOTIS proxies ----
 
 const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -1061,6 +1261,31 @@ export default {
         );
       return nearbyStops(cors, url, ip);
     }
+    if (url.pathname === "/api/arrivals") {
+      if (request.method !== "GET")
+        return Response.json(
+          { error: "GET requests only" },
+          { status: 405, headers: cors },
+        );
+      return arrivals(cors, url, ip);
+    }
+    if (url.pathname === "/api/health") {
+      if (request.method !== "GET")
+        return Response.json(
+          { error: "GET requests only" },
+          { status: 405, headers: cors },
+        );
+      return health(env, cors);
+    }
+    // Manual probe trigger for debugging — same code the cron runs.
+    if (url.pathname === "/api/probe") {
+      if (request.method !== "GET")
+        return Response.json(
+          { error: "GET requests only" },
+          { status: 405, headers: cors },
+        );
+      return Response.json(await runProbe(env), { headers: cors });
+    }
     const post = url.pathname === "/llm"; // STAGE-0: only /llm accepts POST
     if (request.method !== (post ? "POST" : "GET"))
       return Response.json(
@@ -1082,15 +1307,26 @@ export default {
     }
     let upstream;
     if (url.pathname.startsWith("/gtfsrt/")) {
-      // OCTA keyless GTFS-RT pass-through (CORS is absent upstream)
-      upstream = await fetch(
-        `${GTFSRT}${url.pathname.slice(7)}.aspx${url.search}`,
-        {
+      // OCTA keyless GTFS-RT pass-through — now cache-backed: fresh <30s
+      // comes from the edge cache, upstream failures serve last-good.
+      const name = url.pathname.slice(8);
+      try {
+        const feed = await cachedFeed(name);
+        return new Response(feed.body, {
+          status: 200,
           headers: {
-            "Accept-Language": request.headers.get("Accept-Language") || "en",
+            "content-type": "application/octet-stream",
+            "x-feed-stale": feed.stale ? "1" : "0",
+            "x-feed-age-ms": String(Math.round(feed.age)),
+            ...cors,
           },
-        },
-      );
+        });
+      } catch (e) {
+        return Response.json(
+          { error: `upstream request failed (${e.message})` },
+          { status: 502, headers: cors },
+        );
+      }
     } else {
       if (!env.TRANSIT_API_KEY)
         return Response.json(
@@ -1110,5 +1346,11 @@ export default {
       status: upstream.status,
       headers,
     });
+  },
+
+  // Cron trigger — configured via the Workers schedules API. Probes every
+  // upstream and records the verdict in KV for /api/health + the scoreboard.
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(runProbe(env));
   },
 };
