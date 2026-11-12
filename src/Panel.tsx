@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
-import { Clock3, LocateFixed, Navigation, Search, X } from "lucide-react";
+import {
+  Clock3,
+  LocateFixed,
+  Navigation,
+  Search,
+  Share2,
+  X,
+} from "lucide-react";
 import { searchOrigin } from "./api";
+import { shareJourney } from "./shareUtils";
 import { SettingsPanel } from "./SettingsPanel";
 import { delayText, minutes, time, transfers } from "./display";
 import { ResultsList } from "./ResultsList";
@@ -111,26 +119,34 @@ export function Panel({ controller }: { controller: TransitController }) {
       </details>
       <div className="departure">
         <Clock3 size={14} />
-        <span>Departure</span>
+        <span>
+          {controller.timeMode === "arrive" ? "Arrival" : "Departure"}
+        </span>
         <select
           aria-label="Departure mode"
-          value={departure ? "pick" : "now"}
-          onChange={(e) =>
-            setDeparture(
-              e.target.value === "now"
-                ? ""
-                : new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
-                    .toISOString()
-                    .slice(0, 16),
-            )
-          }
+          value={controller.timeMode}
+          onChange={(e) => {
+            const v = e.target.value as "now" | "depart" | "arrive";
+            controller.setTimeMode(v);
+            if (v !== "now" && !departure)
+              setDeparture(
+                new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+                  .toISOString()
+                  .slice(0, 16),
+              );
+          }}
         >
           <option value="now">Leave now</option>
-          <option value="pick">Pick a time</option>
+          <option value="depart">Leave at</option>
+          <option value="arrive">Arrive by</option>
         </select>
-        {departure && (
+        {controller.timeMode !== "now" && (
           <input
-            aria-label="Departure time"
+            aria-label={
+              controller.timeMode === "arrive"
+                ? "Arrival time"
+                : "Departure time"
+            }
             type="datetime-local"
             value={departure}
             onChange={(e) => setDeparture(e.target.value)}
@@ -166,6 +182,22 @@ export function Panel({ controller }: { controller: TransitController }) {
         <details className="directions">
           <summary>
             Journey details <span>{transfers(trip.transfers)}</span>
+            <button
+              className="share-btn"
+              title="Share this journey"
+              aria-label="Share this journey"
+              onClick={async (e) => {
+                e.preventDefault();
+                const r = await shareJourney(
+                  origin,
+                  selected.place,
+                  `${origin.name} → ${selected.place.name}, ${minutes(trip.duration)} min by transit`,
+                );
+                if (r === "copied") setError("Link copied to clipboard.");
+              }}
+            >
+              <Share2 size={13} />
+            </button>
           </summary>
           {trip.legs.map((l, i) => (
             <div className="leg" key={i}>

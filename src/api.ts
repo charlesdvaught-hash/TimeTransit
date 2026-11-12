@@ -139,12 +139,13 @@ async function planData(
   signal?: AbortSignal,
   preferences: Preferences = defaults,
   onAgencies?: (agencies: string[]) => void,
+  arriveBy = false,
 ) {
   const p = new URLSearchParams({
     fromPlace: `${a.lat},${a.lon}`,
     toPlace: `${b.lat},${b.lon}`,
     time: time.toISOString(),
-    arriveBy: "false",
+    arriveBy: String(arriveBy),
     numItineraries: "3",
     ...walkParams(preferences),
   });
@@ -170,9 +171,10 @@ export async function plan(
   signal?: AbortSignal,
   preferences: Preferences = defaults,
   onAgencies?: (agencies: string[]) => void,
+  arriveBy = false,
 ): Promise<Itinerary> {
   return fastest(
-    await planData(a, b, time, signal, preferences, onAgencies),
+    await planData(a, b, time, signal, preferences, onAgencies, arriveBy),
     time,
   );
 }
@@ -183,9 +185,10 @@ export async function planOptions(
   signal?: AbortSignal,
   preferences: Preferences = defaults,
   onAgencies?: (agencies: string[]) => void,
+  arriveBy = false,
 ): Promise<Itinerary[]> {
   return itineraries(
-    await planData(a, b, time, signal, preferences, onAgencies),
+    await planData(a, b, time, signal, preferences, onAgencies, arriveBy),
     time,
   ).slice(0, 3);
 }

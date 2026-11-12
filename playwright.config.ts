@@ -12,17 +12,9 @@ export default defineConfig({
   },
   projects: [
     {
-      // WebKit can't run on this Windows box (missing system DLLs), so
-      // the iPhone project rides Chromium with iPhone dims/touch/UA —
-      // real Safari quirks are handled defensively in code instead.
       name: "iphone",
       use: {
-        viewport: { width: 393, height: 852 },
-        isMobile: true,
-        hasTouch: true,
-        deviceScaleFactor: 3,
-        userAgent:
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        ...devices["iPhone 14 Pro"],
         geolocation: { latitude: 33.7879, longitude: -118.1009 }, // Long Beach
         permissions: ["geolocation"],
       },

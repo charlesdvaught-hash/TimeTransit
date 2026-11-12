@@ -7,6 +7,8 @@ import {
   Dumbbell,
   GripVertical,
   Hammer,
+  Home,
+  Briefcase,
   Layers,
   LocateFixed,
   Lock,
@@ -57,6 +59,15 @@ function segmentAt(value: string, caret: number) {
   }
   return { index: 0, text: value.trim() };
 }
+const boardIcons = { home: Home, work: Briefcase, gym: Dumbbell, pin: MapPin };
+function boardEta(trip: { startTime: string; duration: number } | null) {
+  if (!trip) return "—";
+  const leave = Math.max(
+    0,
+    Math.round((Date.parse(trip.startTime) - Date.now()) / 60000),
+  );
+  return `${leave ? `in ${leave}m` : "now"} · ${minutes(trip.duration)}m`;
+}
 export function ResultsList({ controller }: { controller: TransitController }) {
   const {
     origin,
@@ -84,6 +95,11 @@ export function ResultsList({ controller }: { controller: TransitController }) {
     addToTrip,
     pinPlace,
     setHover,
+    bookmarks,
+    board,
+    recents,
+    nearbyNow,
+    planToBookmark,
   } = controller;
   const [focused, setFocused] = useState(false);
   const [caret, setCaret] = useState(0);
@@ -383,6 +399,15 @@ export function ResultsList({ controller }: { controller: TransitController }) {
           </div>
         )}
       </div>
+      {!query.trim() && !focused && recents.length > 0 && (
+        <div className="recent-chips" aria-label="Recent searches">
+          {recents.map((r) => (
+            <button key={r.id} onClick={() => run(r.label)}>
+              {r.label}
+            </button>
+          ))}
+        </div>
+      )}
       {alts.length > 0 && (
         <p className="did-you-mean">
           Did you mean:
@@ -393,6 +418,62 @@ export function ResultsList({ controller }: { controller: TransitController }) {
           ))}
         </p>
       )}
+      {!busy &&
+        !query.trim() &&
+        !results.length &&
+        !selected &&
+        !chain &&
+        (board.length > 0 || nearbyNow.length > 0) && (
+          <div className="idle-board">
+            {board.find((r) => r.place.icon === "home") && (
+              <button
+                className="get-home"
+                onClick={() =>
+                  planToBookmark(
+                    board.find((r) => r.place.icon === "home")!.place,
+                  )
+                }
+              >
+                <Home size={15} />
+                <strong>Get me home</strong>
+                <span>
+                  {boardEta(board.find((r) => r.place.icon === "home")!.trip)}
+                </span>
+              </button>
+            )}
+            {board
+              .filter((r) => r.place.icon !== "home")
+              .map((r) => {
+                const Icon = boardIcons[r.place.icon];
+                return (
+                  <button
+                    className="board-row"
+                    key={r.place.id}
+                    onClick={() => planToBookmark(r.place)}
+                  >
+                    <Icon size={14} />
+                    <span className="board-label">{r.place.label}</span>
+                    <span className="board-eta">{boardEta(r.trip)}</span>
+                  </button>
+                );
+              })}
+            {nearbyNow.length > 0 && (
+              <div className="nearby-now">
+                <small>NEARBY NOW</small>
+                {nearbyNow.slice(0, 5).map((d, i) => (
+                  <p key={i}>
+                    <strong>{d.route}</strong> {d.stopName}
+                    <span>
+                      {Math.max(0, Math.round((d.time - Date.now()) / 60000))}
+                      {" min"}
+                      {d.realtime ? " · live" : ""}
+                    </span>
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       <div className="categories">
         {Object.keys(categories).map((c) => {
           const Icon = categoryIcons[c] ?? Layers;

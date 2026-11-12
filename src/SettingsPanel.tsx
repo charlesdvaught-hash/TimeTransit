@@ -1,10 +1,18 @@
 import { PreferencesPanel } from "./PreferencesPanel";
 import { ReliabilityPanel } from "./ReliabilityPanel";
-import type { AiMode } from "./contracts";
+import type { AiMode, SavedPlace } from "./contracts";
+import { Briefcase, Dumbbell, Home, MapPin, Trash2 } from "lucide-react";
 import { gmapsConfigured } from "./gmaps";
 import type { Preferences } from "./preferences";
 import type { TransitController } from "./useTimeTransit";
 const tomtom = import.meta.env.VITE_TOMTOM_API_KEY || "";
+const SLOTS: { icon: SavedPlace["icon"]; name: string }[] = [
+  { icon: "home", name: "Home" },
+  { icon: "work", name: "Work" },
+  { icon: "gym", name: "Gym" },
+  { icon: "pin", name: "Custom place" },
+];
+const slotIcons = { home: Home, work: Briefcase, gym: Dumbbell, pin: MapPin };
 const MODES: { id: AiMode; label: string; hint: string }[] = [
   { id: "none", label: "None", hint: "No AI features — current behavior" },
   { id: "minimal", label: "Minimal", hint: "Smart search only" },
@@ -105,6 +113,51 @@ export function SettingsPanel({
         </label>
         <small className="settings-hint">
           Lower values let more of the map show through (frosted glass).
+        </small>
+      </details>
+      <details className="utility-panel">
+        <summary>
+          Saved places <span>{controller.bookmarks.length}/4</span>
+        </summary>
+        {SLOTS.map(({ icon, name }) => {
+          const Icon = slotIcons[icon];
+          const saved = controller.bookmarks.find((b) => b.icon === icon);
+          return (
+            <div className="saved-place" key={icon}>
+              <Icon size={14} />
+              {saved ? (
+                <>
+                  <input
+                    aria-label={`${name} label`}
+                    defaultValue={saved.label}
+                    onBlur={(e) =>
+                      controller.renameBookmark(saved.id, e.target.value)
+                    }
+                  />
+                  <button
+                    title={`Remove ${name}`}
+                    aria-label={`Remove ${name}`}
+                    onClick={() => controller.removeBookmark(saved.id)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="saved-place-set"
+                  onClick={() =>
+                    controller.upsertBookmark(icon, controller.origin)
+                  }
+                >
+                  Save current start as {name}
+                </button>
+              )}
+            </div>
+          );
+        })}
+        <small className="settings-hint">
+          Saved places show live ETAs on the home board — set your start first
+          (search, map pick, or GPS), then save it here.
         </small>
       </details>
       <PreferencesPanel controller={controller} />

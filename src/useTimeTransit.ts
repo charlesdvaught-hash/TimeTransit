@@ -26,12 +26,22 @@ import { loadPlaces, placesInCorridor, searchPlaces } from "./places";
 import { observation } from "./reliability";
 import { addObservations } from "./reliabilityStore";
 import {
+  departuresNear,
   liveDepartures as fetchLiveDepartures,
   transferViolations,
   type LiveDeparture,
+  type NearbyDeparture,
 } from "./transit";
 import { departureSnapshot, resolveTripCandidates } from "./tripCandidates";
 import { geolocationGranted, useUserPosition } from "./useUserPosition";
+import {
+  readBookmarks,
+  readRecentSearches,
+  writeBookmarks,
+  writeRecentSearches,
+} from "./storage";
+import type { RecentSearch, SavedPlace } from "./contracts";
+import { parseShareLink } from "./shareUtils";
 import {
   applyTheme,
   loadOrigin,
@@ -87,6 +97,13 @@ export function useTimeTransit() {
     [interpreted, setInterpreted] = useState<string | null>(null), // STAGE-1
     [locating, setLocating] = useState(false),
     [gpsOn, setGpsOn] = useState(false),
+    [bookmarks, setBookmarks] = useState<SavedPlace[]>(readBookmarks),
+    [recents, setRecents] = useState<RecentSearch[]>(readRecentSearches),
+    [board, setBoard] = useState<
+      { place: SavedPlace; trip: Itinerary | null }[]
+    >([]),
+    [nearbyNow, setNearbyNow] = useState<NearbyDeparture[]>([]),
+    [timeMode, updateTimeMode] = useState<"now" | "depart" | "arrive">("now"),
     [liveDepartures, setLiveDepartures] = useState<
       Record<number, LiveDeparture>
     >({}),
@@ -147,6 +164,11 @@ export function useTimeTransit() {
     setProgress([0, 0]);
     updateDeparture(value);
   }
+  function setTimeMode(mode: "now" | "depart" | "arrive") {
+    if (mode === timeMode) return;
+    updateTimeMode(mode);
+    setDeparture(mode === "now" ? "" : departure); // keep the picked time
+  }
   function changeOrigin(p: Place) {
     invalidateTrip();
     exploreAbort.current?.abort();
@@ -203,6 +225,114 @@ export function useTimeTransit() {
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
     );
   }
+
+  // Wave-1: saved places, departures board, recents, arrive-by mode.
+  const arriveBy = timeMode === "arrive";
+  function upsertBookmark(
+    icon: SavedPlace["icon"],
+    place: Place,
+    label?: string,
+  ) {
+    setBookmarks((prev) => {
+      const next = prev.filter((b) => b.icon !== icon);
+      next.push({
+        id: `bm-${icon}`,
+        label:
+          label?.trim() ||
+          (icon === "pin" ? place.name : icon[0].toUpperCase() + icon.slice(1)),
+        icon,
+        lat: place.lat,
+        lon: place.lon,
+        address: place.address,
+        updatedAt: Date.now(),
+      });
+      writeBookmarks(next);
+      return next;
+    });
+  }
+  function removeBookmark(id: string) {
+    setBookmarks((prev) => {
+      const next = prev.filter((b) => b.id !== id);
+      writeBookmarks(next);
+      return next;
+    });
+  }
+  function renameBookmark(id: string, label: string) {
+    setBookmarks((prev) => {
+      const next = prev.map((b) =>
+        b.id === id ? { ...b, label: label.trim() || b.label } : b,
+      );
+      writeBookmarks(next);
+      return next;
+    });
+  }
+  // exact coords — the pin mechanism skips place search entirely
+  function planToBookmark(b: SavedPlace) {
+    const place: Place = { id: b.id, name: b.label, lat: b.lat, lon: b.lon };
+    run(b.label, { ...pinned, [b.label.toLowerCase()]: place });
+  }
+  function recordRecent(term: string) {
+    const label = term.trim();
+    if (!label || label.length > 40) return;
+    const next = [
+      { id: label.toLowerCase(), label, ts: Date.now() },
+      ...readRecentSearches().filter((r) => r.id !== label.toLowerCase()),
+    ].slice(0, 8);
+    writeRecentSearches(next);
+    setRecents(next);
+  }
+  // departures board: one fastest plan per bookmark, refreshed when the
+  // origin or the bookmark list changes (debounced + abortable)
+  useEffect(() => {
+    if (!bookmarks.length) {
+      setBoard([]);
+      return;
+    }
+    const c = new AbortController();
+    const timer = setTimeout(() => {
+      const at = departureSnapshot(departure);
+      Promise.all(
+        bookmarks.map(async (b) => {
+          try {
+            const trip = await plan(
+              origin,
+              { id: b.id, name: b.label, lat: b.lat, lon: b.lon },
+              at,
+              c.signal,
+              preferences,
+              undefined,
+              arriveBy,
+            );
+            return { place: b, trip };
+          } catch {
+            return { place: b, trip: null };
+          }
+        }),
+      ).then((rows) => {
+        if (!c.signal.aborted) setBoard(rows);
+      });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      c.abort();
+    };
+  }, [origin.lat, origin.lon, bookmarks, departure, timeMode]);
+  // "Nearby now": next departures around the origin — self-disables
+  // without a Transit key/relay, so it just stays empty there
+  useEffect(() => {
+    const c = new AbortController();
+    const timer = setTimeout(() => {
+      departuresNear(origin, c.signal)
+        .then((d) => {
+          if (!c.signal.aborted) setNearbyNow(d);
+        })
+        .catch(() => {});
+    }, 600);
+    return () => {
+      clearTimeout(timer);
+      c.abort();
+    };
+  }, [origin.lat, origin.lon]);
   // permission already granted (returning user)? start the idle watch
   // at boot without a tap; Safari lacks the query and just skips this.
   useEffect(() => {
@@ -215,6 +345,19 @@ export function useTimeTransit() {
     };
   }, []);
   const userPosition = useUserPosition(gpsOn);
+  // share-link hydration: ?to/&tolat/&tolon lands as a pinned place and
+  // auto-runs once, then the URL is cleaned so a reload doesn't re-run
+  useEffect(() => {
+    const shared = parseShareLink();
+    if (!shared) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (shared.origin) changeOrigin(shared.origin);
+    if (shared.dest)
+      run(shared.dest.name, {
+        [shared.dest.name.toLowerCase()]: shared.dest,
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-only
+  }, []);
   useEffect(() => applyTheme(preferences), [preferences]);
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 15000);
@@ -332,6 +475,7 @@ export function useTimeTransit() {
   }
   async function run(term: string, pins = pinned, depth = 0) {
     if (!term.trim()) return;
+    if (!depth) recordRecent(term); // depth>0 = internal semantic re-run
     // STAGE-1: offer free-form sentences to the semantic parser once per run
     if (!depth) {
       if (shouldParse(term, preferences.aiMode)) {
@@ -434,6 +578,7 @@ export function useTimeTransit() {
                 c.signal,
                 preferences,
                 recordProviders,
+                arriveBy,
               );
               const trip = alternatives[0];
               if (!trip)
@@ -569,7 +714,15 @@ export function useTimeTransit() {
             ]);
           }),
         (place) =>
-          plan(origin, place, start, c.signal, preferences, recordProviders),
+          plan(
+            origin,
+            place,
+            start,
+            c.signal,
+            preferences,
+            recordProviders,
+            arriveBy,
+          ),
         c.signal,
       );
       const scanIdx = await scanPromise; // settled alongside corridorReady
@@ -616,7 +769,8 @@ export function useTimeTransit() {
         resolved,
         start,
         back,
-        (a, b, t) => plan(a, b, t, c.signal, preferences, recordProviders),
+        (a, b, t) =>
+          plan(a, b, t, c.signal, preferences, recordProviders, arriveBy),
         speed,
         order,
       );
@@ -698,6 +852,17 @@ export function useTimeTransit() {
     setOrigin,
     userPosition,
     gpsOn,
+    bookmarks,
+    upsertBookmark,
+    removeBookmark,
+    renameBookmark,
+    planToBookmark,
+    board,
+    recents,
+    nearbyNow,
+    timeMode,
+    setTimeMode,
+    arriveBy,
     query,
     setQuery,
     results,
