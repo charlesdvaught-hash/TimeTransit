@@ -193,6 +193,7 @@ export function useTripSearch({
     liveDeparturesChained(
       refs.map((x) => x.leg),
       c.signal,
+      { mode: "planning" },
     )
       .then((lives) => {
         if (c.signal.aborted) return;
@@ -697,6 +698,7 @@ export function useTripSearch({
           liveDeparturesChained(
             refs.map((r) => r.leg!),
             c.signal,
+            { mode: "guidance" },
           )
             .then((lives) => {
               if (c.signal.aborted) return;

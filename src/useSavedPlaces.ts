@@ -122,7 +122,7 @@ export function useSavedPlaces({
   useEffect(() => {
     const c = new AbortController();
     const timer = setTimeout(() => {
-      departuresNearChained(origin, c.signal)
+      departuresNearChained(origin, c.signal, { mode: "planning" })
         .then((d) => {
           if (!c.signal.aborted) setNearbyNow(d);
         })

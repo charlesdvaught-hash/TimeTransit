@@ -63,7 +63,8 @@ async function obaDeparture(
     timeoutMs: 6_000,
   });
   if (!list?.length) return;
-  const norm = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const norm = (s?: string) =>
+    (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const want = norm(leg.routeShortName);
   const hit =
     list.find((a) => norm(a.routeId) === want) ??
@@ -173,50 +174,81 @@ export function indexDeparturesNear(
   return [...byKey.values()].sort((a, b) => a.time - b.time).slice(0, 6);
 }
 
-// Nearby-departures chain: Transit (predicted, multi-agency) -> index
-// schedule + feed delay. Fills the board even with Transit down or absent.
+// Provider order depends on context:
+//  "planning" — own sources first (index schedule + relay arrivals), Transit
+//    last as coverage backstop. Browsing boards and route cards shouldn't
+//    spend Transit quota.
+//  "guidance" — Transit first: crowd-sourced positions + route confirmation
+//    are worth quota when minutes count (waiting at the stop, recalc before
+//    arrival, transfer checks). Ours fill gaps/outages.
+export type ChainMode = "planning" | "guidance";
+
+// Nearby-departures chain. Fills the board even with Transit down or absent.
 export async function departuresNearChained(
   point: { lat: number; lon: number },
   signal?: AbortSignal,
+  opts: { mode?: ChainMode } = {},
 ): Promise<NearbyDeparture[]> {
+  let ctx: { index?: ScanIndex; delays?: TripDelays } = {};
+  const own = async () => {
+    if (!ctx.index) ctx = await indexDelays(signal);
+    return ctx.index
+      ? indexDeparturesNear(ctx.index, point, ctx.delays, Date.now())
+      : [];
+  };
+  if (opts.mode === "planning") {
+    const rows = await own();
+    if (rows.length) return rows;
+  }
   const hit = await trySource("transit", () => departuresNear(point, signal), {
     timeoutMs: 8_000,
   });
   if (hit?.length) return hit;
-  const { index, delays } = await indexDelays(signal);
-  if (!index) return hit ?? [];
-  return indexDeparturesNear(index, point, delays, Date.now());
+  const rows = await own();
+  return rows.length ? rows : (hit ?? []);
 }
 
-// Per-leg ETA chain: Transit first (crowd-sourced positions + route
-// confirmation); legs it can't answer try the relay's OBA-shaped arrivals
-// (real approaching vehicles), then index schedule + feed delay.
+// Per-leg ETA chain, mode-ordered as above. Same shape as liveDepartures().
 export async function liveDeparturesChained(
   legs: (Leg | undefined)[],
   signal?: AbortSignal,
+  opts: { mode?: ChainMode } = {},
 ): Promise<(LiveDeparture | undefined)[]> {
   const out: (LiveDeparture | undefined)[] = legs.map(() => undefined);
   const defined = legs
     .map((leg, i) => ({ leg, i }))
     .filter((x): x is { leg: Leg; i: number } => !!x.leg);
-  const lives = await trySource(
-    "transit",
-    () =>
-      liveDepartures(
-        defined.map((x) => x.leg),
-        signal,
-      ),
-    { timeoutMs: 12_000 },
-  );
-  defined.forEach((x, k) => (out[x.i] = lives?.[k]));
-  if (!defined.some((x) => !out[x.i])) return out;
-  const { index, delays } = await indexDelays(signal);
-  if (!index) return out;
-  const now = Date.now();
-  for (const x of defined)
-    out[x.i] =
-      out[x.i] ??
-      (await obaDeparture(index, x.leg, signal, now)) ??
-      indexDeparture(index, x.leg, delays, now);
+  const transitPass = async () => {
+    const missing = defined.filter((x) => !out[x.i]);
+    if (!missing.length) return;
+    const lives = await trySource(
+      "transit",
+      () =>
+        liveDepartures(
+          missing.map((x) => x.leg),
+          signal,
+        ),
+      { timeoutMs: 12_000 },
+    );
+    missing.forEach((x, k) => (out[x.i] ??= lives?.[k]));
+  };
+  const ownPass = async () => {
+    if (!defined.some((x) => !out[x.i])) return;
+    const { index, delays } = await indexDelays(signal);
+    if (!index) return;
+    const now = Date.now();
+    for (const x of defined)
+      if (!out[x.i])
+        out[x.i] =
+          (await obaDeparture(index, x.leg, signal, now)) ??
+          indexDeparture(index, x.leg, delays, now);
+  };
+  if (opts.mode === "planning") {
+    await ownPass();
+    await transitPass();
+  } else {
+    await transitPass();
+    await ownPass();
+  }
   return out;
 }

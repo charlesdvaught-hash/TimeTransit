@@ -154,7 +154,7 @@ export function MapLayer({
       const places = nearestPlaces(at);
       setPlaceCard({ places, at });
       setRouteCard(null);
-      departuresNearChained(at)
+      departuresNearChained(at, undefined, { mode: "planning" })
         .then((deps) =>
           setPlaceCard((c) => (c?.at === at ? { ...c, deps } : c)),
         )
