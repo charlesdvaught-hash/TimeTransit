@@ -19,7 +19,9 @@ Opt-in real API check: `LIVE=1 npx vitest run src/live.test.ts` (Git Bash; use n
 
 `npm run build` produces an installable PWA in `dist/` — manifest, icons, and a service worker are generated automatically. Serve `dist/` from any HTTPS host (Vercel, Netlify, GitHub Pages…), open it in Chrome on Android, and use "Add to Home Screen" / "Install app" for a standalone launcher. The service worker precaches the app shell, caches basemap tiles and fonts long-term, and keeps transit/search data network-first with a 24 h fallback — so the map and app chrome still load offline, but journeys always prefer live data. Dev mode is unaffected.
 
-**Live site:** https://charlesdvaught-hash.github.io/TimeTransit/ — hosted on GitHub Pages from the `gh-pages` branch (repo must stay public for Pages on the free plan). To redeploy after changes: `npm run build` then `npx gh-pages -d dist -b gh-pages`. The Vite `base` is `/TimeTransit/` (see `vite.config.ts`); if the app moves to a different host/path, set `VITE_BASE` before building.
+**Live site (gated):** hosted on Cloudflare Workers at `https://timetransit-site.charlesdvaught-34c.workers.dev` behind **Cloudflare Access** — visitors enter an allow-listed email, get a one-time code, and keep a 30-day session. No account creation required for testers. The site worker (`site/index.js`) serves `dist/` and answers same-origin `/api/state` for per-user sync (bookmarks/favorites/recents keyed to the verified email — PC and phone sync automatically, each user gets their own blob). Deploy: `MSYS_NO_PATHCONV=1 VITE_BASE=/ npm run build` then `cd site && npx wrangler deploy` (the MSYS flag matters — without it Git Bash mangles `VITE_BASE` into `/Program Files/Git/` and every asset 404s).
+
+**Going public:** GitHub Pages was disconnected (repo is public, but the old `gh-pages` branch is deleted). To relaunch publicly either re-run `npm run build` + `npx gh-pages -d dist -b gh-pages` (needs `VITE_BASE=/TimeTransit/`, the default), or remove the email allowlist from the Access policy and keep the Workers host. Adding tester emails is a one-line update to the Access "allow-listed" policy.
 
 ### Optional: Transit API key
 
