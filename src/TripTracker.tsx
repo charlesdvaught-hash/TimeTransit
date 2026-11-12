@@ -14,7 +14,13 @@ import { trySource } from "./liveSource";
 import { liveVehicle } from "./transit";
 import { loadScanIndex } from "./scanData";
 import { inCoverage } from "./scan";
-import { liveBusFor, watchJourney, type WatchdogResult } from "./watchdog";
+import {
+  liveBusFor,
+  lookAheadBails,
+  watchJourney,
+  type WatchdogResult,
+} from "./watchdog";
+import type { LookAheadBailPoint } from "./contracts";
 import { time } from "./display";
 
 function alertPing() {
@@ -48,6 +54,7 @@ export function TripTracker({
     [index, setIndex] = useState(0),
     [message, setMessage] = useState(""),
     [notice, setNotice] = useState<WatchdogResult>(null),
+    [bails, setBails] = useState<LookAheadBailPoint[]>([]),
     [busInfo, setBusInfo] = useState<{
       stopsAway?: number;
       eta?: number;
@@ -60,6 +67,7 @@ export function TripTracker({
   useEffect(() => {
     if (!tracking.active || !w?.fix) return;
     let alive = true;
+    let pollMs = 30_000;
     const tick = async () => {
       const index = await loadScanIndex().catch(() => undefined);
       if (!alive || !index || !inCoverage(index, w.fix)) return;
@@ -101,17 +109,38 @@ export function TripTracker({
         }
         setNotice(r);
       }
+      // Look-ahead: early-exit points while boarded. An actionable bail or
+      // a blown connection tightens the loop to 15s — seconds matter there.
+      const b =
+        w.phase === "boarded"
+          ? lookAheadBails({
+              index,
+              legs,
+              transitIndex: w.legIndex,
+              delays,
+              now: Date.now(),
+            })
+          : [];
+      if (alive) {
+        setBails(b);
+        pollMs = b.length || r?.kind === "missed" ? 15_000 : 30_000;
+      }
     };
-    tick();
-    const timer = setInterval(tick, 30000);
+    const loop = async () => {
+      await tick();
+      if (alive) timer = window.setTimeout(loop, pollMs);
+    };
+    let timer = 0;
+    void loop();
     return () => {
       alive = false;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [tracking.active, w?.phase, w?.legIndex]);
   useEffect(() => {
     if (!tracking.active) {
       setNotice(null);
+      setBails([]);
       setBusInfo(null);
       lastNotice.current = "";
       onBus?.(null);
@@ -233,6 +262,35 @@ export function TripTracker({
             src="transit-api-badge.svg"
             alt="Powered by Transit"
           />
+        </p>
+      )}
+      {bails[0] && tracking.active && (
+        <p className="reroute-notice" role="alert">
+          Exit in {bails[0].stopsAhead} stop
+          {bails[0].stopsAhead === 1 ? "" : "s"} at {bails[0].stopName}
+          {bails[0].interceptRouteName
+            ? ` · catch ${bails[0].interceptRouteName}`
+            : ""}
+          {bails[0].interceptDepartureEpoch
+            ? ` ~${time(new Date(bails[0].interceptDepartureEpoch))}`
+            : ""}{" "}
+          · saves ~{bails[0].netTimeSavedMinutes} min
+          {onApply && (
+            <button
+              onClick={() => {
+                onApply(
+                  { lat: bails[0].lat, lon: bails[0].lon },
+                  bails[0].estimatedArrivalEpoch,
+                );
+                setBails([]);
+              }}
+            >
+              Exit & replan
+            </button>
+          )}
+          <button aria-label="Dismiss" onClick={() => setBails([])}>
+            ×
+          </button>
         </p>
       )}
       {simulation && (

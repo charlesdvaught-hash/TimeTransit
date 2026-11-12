@@ -71,6 +71,37 @@ export type UserPosition = {
   t: number;
 };
 
+// Transfer risk stratification + look-ahead bail points (hybrid telemetry
+// spec). Tiers drive poll cadence and warning severity; DEGRADED is a
+// runtime state when the audit shows the connection will actually fail.
+export type TransferRiskTier = "LOW" | "MEDIUM" | "HIGH_RISK" | "DEGRADED";
+export type TransferRiskProfile = {
+  tier: TransferRiskTier;
+  scheduledBufferMinutes: number;
+  isSameSite: boolean;
+  requiresWalk: boolean;
+  precedingRideMinutes: number;
+  pollIntervalMs: number;
+};
+
+// A viable early-exit: an upcoming stop on the active trip where getting
+// off and catching an intersecting service beats riding to the broken
+// transfer. Only surfaces when the user still has time to react.
+export type LookAheadBailPoint = {
+  stopId: string;
+  stopName: string;
+  lat: number;
+  lon: number;
+  stopsAhead: number;
+  estimatedArrivalEpoch: number;
+  /** ≥90s warning buffer — the user can still pull the cord and exit */
+  isActionable: boolean;
+  interceptRouteId?: string;
+  interceptRouteName?: string;
+  interceptDepartureEpoch?: number;
+  netTimeSavedMinutes: number;
+};
+
 export type AdventurePlan = {
   stops: {
     query: string;

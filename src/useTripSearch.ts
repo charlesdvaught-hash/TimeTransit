@@ -35,7 +35,8 @@ import {
   type ScanResult,
 } from "./scan";
 import { loadScanIndex } from "./scanData";
-import { fetchTripDelays } from "./gtfsrt"; // WAVE-2
+import { fetchTripDelays, feedStale } from "./gtfsrt"; // WAVE-2
+import { transferTiers } from "./transferRisk";
 import { liveDeparturesChained } from "./fallbackEta";
 import { trySource } from "./liveSource";
 import { loadPlaces, placesInCorridor, searchPlaces } from "./places";
@@ -684,6 +685,11 @@ export function useTripSearch({
             leg: v.trip.legs.find((l) => l.mode !== "WALK" && l.tripId),
           }))
           .filter((r) => !!r.leg);
+        // Risk-tiered cadence: HIGH_RISK transfers poll every 15s (tight
+        // windows need Transit-grade data), everything else stays at 60s.
+        // A stale feed elevates sub-9-minute buffers into HIGH_RISK.
+        const risk = transferTiers(trip, { staleFeed: feedStale() });
+        const pollMs = Math.min(60_000, ...risk.map((p) => p.pollIntervalMs));
         if (
           refs.length &&
           refs.some(
@@ -692,7 +698,7 @@ export function useTripSearch({
                 Date.now() <
               2 * 3600 * 1000,
           ) &&
-          Date.now() - lastLiveCompare >= 60000
+          Date.now() - lastLiveCompare >= pollMs
         ) {
           lastLiveCompare = Date.now();
           liveDeparturesChained(

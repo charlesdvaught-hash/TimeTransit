@@ -217,6 +217,12 @@ export function alertsFor(
 
 let alertCache: { at: number; data: ServiceAlert[] } | null = null;
 
+// Feed Shield state: the relay stamps x-feed-stale when it serves the
+// last-good copy through an upstream outage. Stale data widens risk —
+// see transferRisk.ts's elevation rule — rather than fabricating delay.
+let lastStale = false;
+export const feedStale = () => lastStale;
+
 const base = import.meta.env.VITE_TRANSIT_RELAY
   ? `${import.meta.env.VITE_TRANSIT_RELAY}/gtfsrt`
   : "/gtfsrt";
@@ -225,6 +231,7 @@ export async function fetchTripDelays(
 ): Promise<TripDelays> {
   const r = await fetch(`${base}/tripupdates`, { signal });
   if (!r.ok) throw new Error(`GTFS-RT ${r.status}`);
+  lastStale = r.headers.get("x-feed-stale") === "1";
   return decodeTripUpdates(new Uint8Array(await r.arrayBuffer()));
 }
 

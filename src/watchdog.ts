@@ -1,9 +1,12 @@
 import type { Leg } from "./core";
+import type { LookAheadBailPoint } from "./contracts";
 import {
   activeTripsFor,
   arrivalAtPoint,
   haversine,
   scan,
+  stopPatterns,
+  walkLinks,
   type ScanIndex,
 } from "./scan";
 import type { TripDelays, VehiclePos } from "./gtfsrt";
@@ -276,4 +279,142 @@ export function watchJourney(opts: {
       hint: best.hint,
     };
   return null;
+}
+
+// Spec §4: forward look-ahead — evaluate the next `window` stops on the
+// active trip as early-exit points. A bail point surfaces only when it both
+// beats riding to the terminal by `minSaveMin` AND leaves ≥ `exitClearSec`
+// for the rider to react and get off ("3-stops-back trap" avoidance).
+export function lookAheadBails(opts: {
+  index: ScanIndex;
+  legs: Leg[];
+  transitIndex: number;
+  now: number;
+  delays?: TripDelays;
+  tz?: string;
+  window?: number;
+  exitClearSec?: number;
+  minSaveMin?: number;
+  walkSpeed?: number;
+}): LookAheadBailPoint[] {
+  const { index, legs, now } = opts;
+  const transit = legs.filter((l) => l.mode !== "WALK");
+  const leg = transit[opts.transitIndex];
+  const dest = legs[legs.length - 1]?.to;
+  if (!leg || !dest) return [];
+  const tz = opts.tz ?? "America/Los_Angeles";
+  const speed = opts.walkSpeed ?? 1.33;
+  const active = activeTripsFor(index, tz, now);
+  const fromIdx = near(index, leg.from),
+    toIdx = near(index, leg.to);
+  if (fromIdx < 0 || toIdx < 0) return [];
+  const m = matchTrip(
+    index,
+    active,
+    fromIdx,
+    toIdx,
+    Date.parse(leg.scheduledStartTime || leg.startTime),
+  );
+  if (!m) return [];
+  const stops = index.patterns[m.pi].stops;
+  const toPos = stops.indexOf(toIdx, m.pos + 1);
+  if (toPos < 0) return [];
+  const upd = m.trip.i ? opts.delays?.get(m.trip.i) : undefined;
+  const arrAt = (pos: number) => {
+    const sched = m.trip.base + m.trip.t[pos] * 1000;
+    return sched + delayMsAt(upd, index.stops[stops[pos]].i, sched);
+  };
+  // Where is the vehicle? The feed's earliest reported stop position past
+  // the boarding point ≈ the stop it's approaching (k = one before it).
+  let k = m.pos;
+  if (upd) {
+    const id2idx = new Map(index.stops.map((s, i) => [s.i, i] as const));
+    let ahead = stops.length;
+    for (const sid of upd.keys()) {
+      const si = id2idx.get(sid);
+      if (si === undefined) continue;
+      const pos = stops.indexOf(si, m.pos);
+      if (pos > k && pos < ahead) ahead = pos;
+    }
+    if (ahead < stops.length) k = ahead - 1;
+  }
+  const end = Math.min(k + 1 + (opts.window ?? 4), toPos);
+  const clearMs = (opts.exitClearSec ?? 90) * 1000;
+  const saveMs = (opts.minSaveMin ?? 8) * 60000;
+  const pats = stopPatterns(index),
+    links = walkLinks(index);
+  // Baseline: ride to the terminal at its real (delayed) arrival, then the
+  // best continuation to the destination — "wait for next bus" priced in.
+  const baseArr = arrAt(toPos);
+  const baseline = arrivalAtPoint(
+    index,
+    scan(index, ll(index.stops[toIdx]), baseArr, {
+      delays: opts.delays,
+      walkSpeed: speed,
+      tz,
+    }),
+    dest,
+    speed,
+  );
+  if (baseline === undefined) return [];
+  const out: LookAheadBailPoint[] = [];
+  for (let pos = k + 1; pos < end; pos++) {
+    const arr = arrAt(pos);
+    if (arr < now + clearMs) continue; // inside the no-react window — skip
+    const si = stops[pos];
+    const eta = arrivalAtPoint(
+      index,
+      scan(index, ll(index.stops[si]), arr, {
+        delays: opts.delays,
+        walkSpeed: speed,
+        tz,
+      }),
+      dest,
+      speed,
+    );
+    if (eta === undefined || baseline - eta < saveMs) continue;
+    // Intercept label: earliest catchable departure on a DIFFERENT route at
+    // this stop or a ≤200m walk link. Best-effort naming for the prompt —
+    // the scan, not this label, is the authority on what's faster.
+    let intercept: { rid?: string; r?: string; dep: number } | undefined;
+    const boards = [
+      { si, ready: arr },
+      ...links[si]
+        .filter(([, mm]) => mm <= 200)
+        .map(([ni, mm]) => ({ si: ni, ready: arr + (mm / speed) * 1000 })),
+    ];
+    for (const b of boards)
+      for (const [pi, pos2] of pats[b.si]) {
+        if (pi === m.pi) continue;
+        const p = index.patterns[pi];
+        for (const trip of active[pi]) {
+          const sched = trip.base + trip.t[pos2] * 1000;
+          const dep =
+            sched +
+            delayMsAt(
+              trip.i ? opts.delays?.get(trip.i) : undefined,
+              index.stops[b.si].i,
+              sched,
+            );
+          if (dep >= b.ready && (!intercept || dep < intercept.dep))
+            intercept = { rid: p.rid, r: p.r, dep };
+        }
+      }
+    out.push({
+      stopId: index.stops[si].i,
+      stopName: index.stops[si].n,
+      lat: index.stops[si].la,
+      lon: index.stops[si].lo,
+      stopsAhead: pos - k,
+      estimatedArrivalEpoch: arr,
+      isActionable: true,
+      interceptRouteId: intercept?.rid,
+      interceptRouteName: intercept?.r,
+      interceptDepartureEpoch: intercept?.dep,
+      netTimeSavedMinutes: Math.round((baseline - eta) / 60000),
+    });
+  }
+  return out
+    .sort((a, b) => b.netTimeSavedMinutes - a.netTimeSavedMinutes)
+    .slice(0, 3);
 }
