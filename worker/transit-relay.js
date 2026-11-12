@@ -21,8 +21,9 @@ const PROMPTS = {
     "You are the query preprocessor for a transit trip planner. " +
     "Split the user query into high_priority_anchors (specific named " +
     "places/brands that must anchor the route, normalized to canonical " +
-    "name) and flexible_categories (generic venue categories, lowercase " +
-    "OSM/Overture-style kinds like 'coffee shop'). Max 4 total stops. " +
+    "name) and flexible_categories (generic venue types, preserving " +
+    "descriptive adjectives and vibes like 'nerdy bar' or 'quiet coffee " +
+    "shop' rather than stripping them to bare nouns). Max 4 total stops. " +
     "If nothing parseable, return empty arrays.",
   assist:
     "You are the adventure planner for a transit trip planner. Turn the " +

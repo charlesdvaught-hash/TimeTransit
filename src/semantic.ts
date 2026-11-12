@@ -8,7 +8,7 @@ import type { AiMode, SemanticParseResult } from "./contracts";
 export function shouldParse(term: string, mode: AiMode): boolean {
   if (mode === "none") return false;
   if (term.includes("+")) return false;
-  if (term.trim().split(/\s+/).filter(Boolean).length <= 2) return false;
+  if (term.trim().split(/\s+/).filter(Boolean).length < 2) return false;
   return matchCategory(term).length === 0;
 }
 

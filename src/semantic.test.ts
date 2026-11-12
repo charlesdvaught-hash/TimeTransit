@@ -28,7 +28,9 @@ describe("shouldParse", () => {
     expect(shouldParse(sentence, "none")).toBe(false);
     expect(shouldParse("coffee + grocery runs", "minimal")).toBe(false);
     expect(shouldParse("coffee shops near me", "minimal")).toBe(false); // category
-    expect(shouldParse("two words", "minimal")).toBe(false);
+    expect(shouldParse("nerdy bar", "minimal")).toBe(true); // adjective + noun
+    expect(shouldParse("two words", "minimal")).toBe(true); // unmatched → LLM
+    expect(shouldParse("the gym", "minimal")).toBe(false); // category + stopword
     expect(shouldParse("coffee", "minimal")).toBe(false);
   });
 });
