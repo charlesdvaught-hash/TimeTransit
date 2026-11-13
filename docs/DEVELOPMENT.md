@@ -119,6 +119,16 @@ user.email=…` per commit; set `GIT_AUTHOR_*`/`GIT_COMMITTER_*` for
 - **Transit free-tier quota:** 5 calls/min + 1,500 calls/mo; each journey
   selection costs ~1–2 relay calls per transit leg; the alternative
   comparison is throttled to stay under the per-minute ceiling.
+- **npm `overrides` force two build-time dep fixes** (Dependabot): `glob`
+  → `minimatch@11.0.4` (globparts-amplification ReDoS, fixed 11.0.1) and
+  `workbox-build` → `glob@14.0.2` (AbortSignal bypass). Both only run inside
+  `vite-plugin-pwa` at build time on our own static globs — verified by
+  `npm run build` (workbox generates `dist/sw.js` fine under the forced
+  majors). **`deepmerge@4.3.1` remains flagged** (prototype poisoning, no
+  patch exists, latest `@rollup/plugin-node-resolve` still requires it) —
+  accepted: it only merges our own `vite.config.ts` PWA options at build
+  time, so the attacker-controlled-source precondition can't be met. Re-check
+  on the next `vite-plugin-pwa`/workbox release.
 - **Service worker** caches app shell, basemap tiles, fonts; plan/search data
   is NetworkFirst with 24 h fallback; Transit responses deliberately uncached.
 - **Cloudflare dashboard drag-upload refuses JS Worker projects** — use
