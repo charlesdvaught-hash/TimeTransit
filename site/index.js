@@ -4,11 +4,18 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    // Cloudflare Access asserts the verified email on every request; until
-    // Access is enabled the ?key gate still runs and sync uses a shared blob.
-    const authed = request.headers.get("Cf-Access-Authenticated-Email");
-    const key = url.searchParams.get("key");
+    // Cloudflare Access fronts every request; identity arrives either as the
+    // Cf-Access-Authenticated-Email header or inside the CF_Authorization
+    // JWT cookie (which IS forwarded to workers.dev even when the header
+    // variant isn't). Decode the JWT payload for the email — the token's
+    // presence already proves Access admitted the request.
     const cookie = request.headers.get("Cookie") || "";
+    const jwt =
+      request.headers.get("Cf-Access-Jwt-Assertion") ||
+      cookie.match(/CF_Authorization=([^;]+)/)?.[1];
+    const authed =
+      request.headers.get("Cf-Access-Authenticated-Email") || jwtEmail(jwt);
+    const key = url.searchParams.get("key");
     if (
       !authed &&
       key !== env.SITE_KEY &&
@@ -28,6 +35,17 @@ export default {
 };
 
 const EMPTY = { bookmarks: [], favoriteLines: [], recentSearches: [], updatedAt: 0 };
+
+// Decode (not verify) an Access JWT payload — presence of a well-formed
+// token implies Access already authenticated the request upstream.
+function jwtEmail(jwt) {
+  try {
+    const b64 = jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(b64)).email || null;
+  } catch {
+    return null;
+  }
+}
 
 // Per-user sync blob, keyed by verified email (or "shared" pre-Access).
 async function stateApi(request, env, email) {

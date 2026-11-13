@@ -199,12 +199,14 @@ export function Panel({ controller }: { controller: TransitController }) {
   } = controller;
   type Snap = "peek" | "half" | "full";
   const SNAPS: Snap[] = ["peek", "half", "full"];
-  const [snap, setSnap] = useState<Snap>("half");
+  const [snap, setSnap] = useState<Snap>("peek");
   const drag = useRef<{ y: number; dy: number } | null>(null);
   const aside = useRef<HTMLElement>(null);
+  // Collapsed by default — the map is the content. Expand only when there's
+  // a journey or an error worth looking at; tap the grabber to peek back.
   useEffect(() => {
-    if (selected) setSnap("half");
-  }, [selected]);
+    if (selected || chain || error) setSnap("half");
+  }, [selected, chain, error]);
   useEffect(() => {
     document.documentElement.dataset.sheet = snap;
   }, [snap]);
@@ -264,24 +266,12 @@ export function Panel({ controller }: { controller: TransitController }) {
         <p className="notice">Click anywhere on the map to set your origin.</p>
       )}
       <div className="panel-body">
-        {!gps && (
+        <details className="utility-panel origin-tools">
+          <summary>Change start</summary>
           <button className="use-location" onClick={locate} disabled={locating}>
             <LocateFixed size={13} />
-            {locating ? "Locating…" : "Use my location"}
+            {locating ? "Locating…" : gps ? "Re-locate me" : "Use my location"}
           </button>
-        )}
-        <details className="utility-panel origin-tools">
-          <summary>{gps ? "Change start" : "Start options"}</summary>
-          {gps && (
-            <button
-              className="use-location"
-              onClick={locate}
-              disabled={locating}
-            >
-              <LocateFixed size={13} />
-              {locating ? "Locating…" : "Re-locate me"}
-            </button>
-          )}
           <form
             className="address-form"
             onSubmit={async (e) => {
