@@ -48,7 +48,7 @@ const categoryIcons: Record<string, typeof Coffee> = {
 };
 import { minutes, time } from "./display";
 import { RouteChips } from "./RouteChips";
-import { RouteHunt } from "./RouteHunt";
+import RouteBoard, { type BoardRoute } from "./RouteBoard";
 import type { TransitController } from "./useTimeTransit";
 function segmentAt(value: string, caret: number) {
   const parts = value.split("+");
@@ -114,6 +114,17 @@ export function ResultsList({ controller }: { controller: TransitController }) {
   const dragIdx = useRef(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const parts = query.split("+").map((s) => s.trim());
+  // Departure-board rows: each streamed result becomes a line + keystone
+  // (the place) + rotating side stops (real boarding stops on its legs).
+  const boardRoutes: BoardRoute[] = results.slice(0, 10).map((r) => {
+    const legs = r.trip.legs.filter((l) => l.routeShortName);
+    return {
+      id: r.place.id,
+      line: legs[0]?.routeShortName ?? "WK",
+      stops: [...new Set([r.place.name, ...legs.map((l) => l.from.name)])],
+      minutes: Math.round(r.trip.duration / 60),
+    };
+  });
   const stops = parts.filter(Boolean);
   const pending = query.includes("+") && parts[parts.length - 1] === "";
   const slots = pending ? [...stops, ""] : stops;
@@ -639,7 +650,19 @@ export function ResultsList({ controller }: { controller: TransitController }) {
           <Zap size={14} />
         )}
       </div>
-      {busy && <RouteHunt compare={tripBusy} progress={progress} />}
+      {busy && (
+        <RouteBoard
+          routes={boardRoutes}
+          searching
+          progress={progress}
+          compare={tripBusy}
+          flavor={[...new Set(nearbyNow.map((d) => d.stopName))]}
+          onSelect={(id) => {
+            const r = results.find((x) => x.place.id === id);
+            if (r) setSelected(r);
+          }}
+        />
+      )}
       {chain && chainNote && <p className="chain-note">{chainNote}</p>}
       {chains.length > 1 && (
         <div className="route-cards">
