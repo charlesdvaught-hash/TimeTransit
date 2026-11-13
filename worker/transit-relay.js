@@ -59,6 +59,17 @@ const PROMPTS = {
     "When a requested time can't be expressed as a date the schema " +
     "allows, set the field to null — never emit an error object. " +
     "Stops are places only; never emit transit legs or 'home' as stops.",
+  suggest:
+    "You are the local-discovery advisor for a transit trip planner. Given " +
+    "a search intent (and an optional 'Trip context' block with the origin " +
+    "and nearby transit corridors), return up to 6 specific real places " +
+    "that satisfy it — favor lesser-known or niche spots that obvious " +
+    "indexes miss, and you may name places outside the immediate " +
+    "neighborhood when they fit the intent and region; prefer spots " +
+    "plausibly reachable via the listed corridors. Each suggestion: name " +
+    "(the real business/venue/landmark name as it appears on a map) and " +
+    "area (city or neighborhood, for geocoding). Only name places you are " +
+    "confident actually exist — never invent names.",
 };
 const PARSE_SCHEMA = {
   type: "object",
@@ -97,6 +108,26 @@ const RANK_SCHEMA = {
     ranked_indices: { type: "array", items: { type: "integer" } },
   },
   required: ["ranked_indices"],
+  additionalProperties: false,
+};
+const SUGGEST_SCHEMA = {
+  type: "object",
+  properties: {
+    suggestions: {
+      type: "array",
+      maxItems: 6,
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          area: { type: "string" },
+        },
+        required: ["name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["suggestions"],
   additionalProperties: false,
 };
 const ADVENTURE_SCHEMA = {
@@ -274,13 +305,18 @@ async function llm(request, env, cors) {
       { error: "JSON object body required" },
       { status: 400, headers: cors },
     );
-  const { task, input, history, repair } = body;
-  if (task !== "parse" && task !== "assist" && task !== "rank")
+  const { task, input, history, repair, context } = body;
+  if (
+    task !== "parse" &&
+    task !== "assist" &&
+    task !== "rank" &&
+    task !== "suggest"
+  )
     return Response.json(
-      { error: "task must be 'parse', 'assist', or 'rank'" },
+      { error: "task must be 'parse', 'assist', 'rank', or 'suggest'" },
       { status: 400, headers: cors },
     );
-  const inputCap = task === "rank" ? 4000 : 300;
+  const inputCap = task === "rank" ? 4000 : task === "suggest" ? 600 : 300;
   if (typeof input !== "string" || !input || input.length > inputCap)
     return Response.json(
       {
@@ -301,7 +337,16 @@ async function llm(request, env, cors) {
       { error: "history must be an array of at most 6 {role,content} entries" },
       { status: 400, headers: cors },
     );
+  if (
+    context !== undefined &&
+    (typeof context !== "string" || context.length > 2000)
+  )
+    return Response.json(
+      { error: "context must be a string of at most 2000 chars" },
+      { status: 400, headers: cors },
+    );
   let user = input;
+  if (context) user += `\n\nTrip context:\n${context}`;
   if (history?.length)
     user +=
       "\n\nContext:\n" +
@@ -313,13 +358,17 @@ async function llm(request, env, cors) {
       ? PARSE_SCHEMA
       : task === "rank"
         ? RANK_SCHEMA
-        : assistSchema();
+        : task === "suggest"
+          ? SUGGEST_SCHEMA
+          : assistSchema();
   const name =
     task === "parse"
       ? "semantic_parse"
       : task === "rank"
         ? "candidate_rank"
-        : "adventure_plan";
+        : task === "suggest"
+          ? "place_suggestions"
+          : "adventure_plan";
   const providers = (env.LLM_PROVIDERS || "groq,gemini")
     .split(",")
     .map((s) => s.trim())
@@ -801,8 +850,7 @@ async function cachedFeed(name) {
     await cache.put(key, stored);
     return { body, stale: false, age: 0 };
   } catch (e) {
-    if (hit)
-      return { body: await hit.arrayBuffer(), stale: true, age: hitAge };
+    if (hit) return { body: await hit.arrayBuffer(), stale: true, age: hitAge };
     throw e;
   }
 }
@@ -831,10 +879,11 @@ async function arrivals(cors, url, ip) {
   const list = arrivalsForStop(new Uint8Array(feed.body), stopId)
     .filter(
       (a) =>
-        a.predictedTime === undefined ||
-        a.predictedTime > Date.now() - 300_000,
+        a.predictedTime === undefined || a.predictedTime > Date.now() - 300_000,
     )
-    .sort((a, b) => (a.predictedTime || Infinity) - (b.predictedTime || Infinity))
+    .sort(
+      (a, b) => (a.predictedTime || Infinity) - (b.predictedTime || Infinity),
+    )
     .slice(0, 8);
   return Response.json(
     {
@@ -872,7 +921,12 @@ async function runProbe(env) {
         ...opts,
       });
       const body = await r.arrayBuffer();
-      return { ok: r.ok, status: r.status, ms: Date.now() - t, bytes: body.byteLength };
+      return {
+        ok: r.ok,
+        status: r.status,
+        ms: Date.now() - t,
+        bytes: body.byteLength,
+      };
     } catch (e) {
       return { ok: false, ms: Date.now() - t, error: String(e).slice(0, 80) };
     }
@@ -886,7 +940,10 @@ async function runProbe(env) {
       `${MOTIS}/api/v1/map/stops?min=33.7,-117.9&max=33.71,-117.89`,
       { headers: MOTIS_HEADERS },
     ),
-    photon: await check("photon", "https://photon.komoot.io/api/?q=test&limit=1"),
+    photon: await check(
+      "photon",
+      "https://photon.komoot.io/api/?q=test&limit=1",
+    ),
   };
   if (env.TT_STATE_KV)
     await env.TT_STATE_KV.put("health:latest", JSON.stringify(probe));

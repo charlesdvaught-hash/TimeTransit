@@ -11,6 +11,7 @@ import {
   type ChatMessage,
 } from "./assistant";
 import { time } from "./display";
+import { llmContext } from "./semantic";
 import { eventFromLink } from "./events";
 import { gmapsUrl } from "./gmaps";
 import type { AdventurePlan } from "./contracts";
@@ -70,7 +71,11 @@ export function AdventureAssistant({
           .replace(/\s+/g, " ")
           .trim()
       : text;
-    const raw = await adventureQuery(prompt, history);
+    const raw = await adventureQuery(
+      prompt,
+      history,
+      await llmContext(controller.origin).catch(() => undefined),
+    );
     if (!raw) {
       setBusy(false);
       setHistory((h) =>

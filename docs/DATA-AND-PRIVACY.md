@@ -59,16 +59,16 @@ recentSearches, updatedAt}`).
 
 ## What leaves the browser
 
-| Destination                         | What's sent                                             | What's not                                 |
-| ----------------------------------- | ------------------------------------------------------- | ------------------------------------------ |
-| Transitous/MOTIS                    | Journey coordinates, departure/arrival time, walk prefs | —                                          |
-| Photon                              | Search terms, origin/bounds                             | —                                          |
-| TomTom                              | Typed query + origin bias point                         | Results never persisted                    |
-| Transit API (via relay)             | Stop coordinates, departure time                        | lat/lon only per terms §8.4                |
-| OCTA GTFS-RT (via relay)            | Nothing (feed poll)                                     | —                                          |
-| `api.metro.net` WebSocket           | Route codes only (feed subscription)                    | No account, no location sent               |
-| Relay `/llm`, `/events`, `/gmaps/*` | Query text / candidates / coords as the task requires   | Raw model output never enters chat history |
-| `/api/state` (hosted)               | The sync blob, under your verified email                | —                                          |
+| Destination                         | What's sent                                                                                                                   | What's not                                                                                                      |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Transitous/MOTIS                    | Journey coordinates, departure/arrival time, walk prefs                                                                       | —                                                                                                               |
+| Photon                              | Search terms, origin/bounds                                                                                                   | —                                                                                                               |
+| TomTom                              | Typed query + origin bias point                                                                                               | Results never persisted                                                                                         |
+| Transit API (via relay)             | Stop coordinates, departure time                                                                                              | lat/lon only per terms §8.4                                                                                     |
+| OCTA GTFS-RT (via relay)            | Nothing (feed poll)                                                                                                           | —                                                                                                               |
+| `api.metro.net` WebSocket           | Route codes only (feed subscription)                                                                                          | No account, no location sent                                                                                    |
+| Relay `/llm`, `/events`, `/gmaps/*` | Query text / candidates / coords as the task requires; `/llm` context adds origin name+coords, local time, nearby route names | Raw model output never enters chat history; LLM place suggestions only reach the map after geocode verification |
+| `/api/state` (hosted)               | The sync blob, under your verified email                                                                                      | —                                                                                                               |
 
 Notably: **the GPS trace goes nowhere.** Requests carry journey coordinates
 and search terms — the data providers need to answer — not your position

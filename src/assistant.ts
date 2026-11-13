@@ -237,6 +237,7 @@ function clockStamp(message: string, now: Date): string {
 export async function adventureQuery(
   message: string,
   history: ChatMessage[] = [],
+  context?: string,
   signal?: AbortSignal,
 ): Promise<AdventurePlan | null> {
   const relay = import.meta.env.VITE_TRANSIT_RELAY;
@@ -246,6 +247,7 @@ export async function adventureQuery(
     task: "assist",
     input: `${message}\n(Current local time: ${clockStamp(message, now)})`,
     history,
+    ...(context ? { context } : {}),
   };
   for (let attempt = 0; attempt < 2; attempt++) {
     try {

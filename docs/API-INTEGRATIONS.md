@@ -229,7 +229,14 @@ strict:true, schema}}`, `reasoning_effort:"low"`,
   max_price), `rank` ({query, candidates:[{name,kind}]} → ranked_indices),
   `assist` (AdventurePlan; `depart_at`/`return_by` clamped to a rolling ~62-day
   window by schema pattern — models emit `null` out of window rather than
-  bending dates; the client's `fresh()` drops leaks anyway).
+  bending dates; the client's `fresh()` drops leaks anyway), `suggest`
+  (intent → ≤6 `{name, area}` place suggestions — niche/out-of-area picks the
+  model believes exist; client geocode-verifies every name via Photon before
+  it can become a candidate).
+- Optional `context` field (≤2000 chars) appends a "Trip context" block to
+  any task — `llmContext(origin)` supplies origin name + coords, local time,
+  and walk-distance transit corridors. `input` caps: 300 (`parse`/`assist`),
+  600 (`suggest`), 4000 (`rank`).
 - Any provider failure degrades to ordinary search. Rate caps: 30 req/min/IP +
   800 req/day in-worker.
 - Probe: `GROQ_API_KEY=… GEMINI_API_KEY=… node scripts/llm-probe.mjs` →

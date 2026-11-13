@@ -101,6 +101,23 @@ export async function suggest(
     )
     .slice(0, 6);
 }
+// Name+area geocode for LLM-suggested places — a wider net than search()
+// (no distance cap; suggestions may legitimately sit outside the base area).
+// Verification/matching lives in discovery.ts.
+export async function geocode(
+  query: string,
+  origin: Place,
+  signal?: AbortSignal,
+): Promise<Place[]> {
+  const p = new URLSearchParams({
+    q: query,
+    lat: String(origin.lat),
+    lon: String(origin.lon),
+    limit: "3",
+  });
+  const data = await json(`https://photon.komoot.io/api/?${p}`, signal);
+  return (data.features || []).map((f: any) => toPlace(f, query));
+}
 export async function search(
   query: string,
   origin: Place,

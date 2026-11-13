@@ -21,6 +21,13 @@ not guarantees of a global optimum. Modules are pure where possible; see
    name matches so Walmart surfaces for "grocery" even though its name never
    says it.
 3. **Candidate bounding.** ~20 km radius, deduplicated across providers.
+   With AI on, a fourth source joins the merge in parallel — **LLM
+   discovery** (`semantic.suggestPlaces` → `discovery.verifySuggestion`):
+   the model proposes ≤6 specific place names it believes satisfy the
+   intent (niche or out-of-area spots), and each name must geocode-verify
+   through Photon — a same-named result (accent-folded token match ≥50% of
+   significant tokens) within 120 km — before entering the pool.
+   Unverifiable names are dropped, so hallucinations can't reach results.
 4. **Reachability pre-rank.** MOTIS `one-to-all` computes reach time to a stop
    within 1.5 km of each candidate, plus a walk at the configured speed. The
    best ~20 are then planned exactly with `v2/plan`. A farther place on an
@@ -36,6 +43,14 @@ not guarantees of a global optimum. Modules are pure where possible; see
 6. **LLM rerank (optional).** With AI assistance on, `rankPlaces` reorders the
    reachability candidates by intent fit (names + kinds only, never invented
    places). Its picks get the plan calls; display order stays journey-time.
+
+Every `/llm` call (`parse`, `rank`, `assist`, `suggest`) can carry a
+one-shot `context` block — `llmContext(origin)` emits the origin name +
+coordinates, current local time, and walk-distance transit corridors
+(`routeCorridors`: patterns whose nearest stop is ≤1.6 km, deduped by
+route+headsign, nearest first, capped at 14). Context is advisory: the
+model can steer toward reachable corridors, but every suggestion still
+verifies against real data afterwards.
 
 ## Local reachability scan (`scan.ts`)
 

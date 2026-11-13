@@ -23,7 +23,14 @@ import {
   type TripChain,
 } from "./core";
 import { plan, planOptions, reachable, search } from "./api";
-import { parseQuery, rankPlaces, shouldParse, toTerm } from "./semantic"; // STAGE-1
+import {
+  llmContext,
+  parseQuery,
+  rankPlaces,
+  shouldParse,
+  toTerm,
+} from "./semantic"; // STAGE-1
+import { discoverPlaces } from "./discovery";
 import { nameScore } from "./suggestions"; // STAGE-1
 import type { CachedPlan, SemanticParseResult } from "./contracts"; // STAGE-1
 import {
@@ -281,7 +288,7 @@ export function useTripSearch({
     // STAGE-1: offer free-form sentences to the semantic parser once per run
     if (!depth) {
       if (shouldParse(term, preferences.aiMode)) {
-        const parsed = await parseQuery(term);
+        const parsed = await parseQuery(term, await llmContext(origin));
         if (parsed) {
           const next = toTerm(parsed);
           const found = await anchorPins(parsed, pins);
@@ -332,6 +339,10 @@ export function useTripSearch({
       );
       const scanPromise = loadScanIndex().catch(() => undefined);
       loadPlaces();
+      // One-shot context for the run's LLM calls (origin + corridors);
+      // undefined when AI is off — also gates the discovery branch below.
+      const llmCtx =
+        preferences.aiMode !== "none" ? await llmContext(origin) : undefined;
       const parsedQuery =
         !pins[term.trim().toLowerCase()] &&
         (!!expand?.length ||
@@ -342,12 +353,17 @@ export function useTripSearch({
         : await (async () => {
             const terms = [term, ...(expand ?? []).slice(0, 3)];
             const seen = new Set<string>();
-            const [remote, gm] = await Promise.all([
+            const [remote, gm, discovered] = await Promise.all([
               Promise.all(terms.map((t) => search(t, origin, c.signal))).then(
                 (a) => a.flat(),
               ),
               parsedQuery
                 ? gmapsSearchPlaces(term, origin, c.signal)
+                : Promise.resolve([]),
+              // LLM discovery: niche/out-of-area names, geocode-verified
+              // before they can enter the pool. Silent [] on any failure.
+              llmCtx !== undefined
+                ? discoverPlaces(term, llmCtx, origin, c.signal)
                 : Promise.resolve([]),
             ]);
             const gplaces = gm
@@ -364,6 +380,7 @@ export function useTripSearch({
               ...terms.flatMap((t) => searchPlaces(t, origin)),
               ...remote,
               ...gplaces,
+              ...discovered,
             ].filter((p) => {
               const k = p.id ?? `${p.name.toLowerCase()}|${p.lat}|${p.lon}`;
               if (seen.has(k)) return false;
@@ -411,7 +428,7 @@ export function useTripSearch({
       // Display order stays journey-time via rank(found) downstream.
       let planned = reachable20.slice(0, 20);
       if (parsedQuery && reachable20.length > 8) {
-        const order = await rankPlaces(term, reachable20, c.signal);
+        const order = await rankPlaces(term, reachable20, llmCtx, c.signal);
         if (c.signal.aborted) return;
         if (order?.length) {
           const picked = order.map((i) => reachable20[i]).filter(Boolean);
