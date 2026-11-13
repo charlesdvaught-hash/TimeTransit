@@ -23,6 +23,7 @@ import {
   followUserCamera,
   paintAmbient,
   paintRidePois,
+  paintVehicles,
   paintRoute,
   pulseNetworkGlow,
   removeUserLayers,
@@ -68,6 +69,7 @@ export function MapLayer({
     basemap,
     chooseBasemap,
     ridePois,
+    vehicles,
   } = controller;
   const mapNode = useRef<HTMLDivElement>(null);
   const pickRef = useRef(picking);
@@ -349,6 +351,17 @@ export function MapLayer({
       clearRidePois(m);
     };
   }, [ridePois]);
+  // ambient live vehicles — OCTA fleet + Metro rail/trip-route buses
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const draw = () => paintVehicles(m, vehicles);
+    if (m.isStyleLoaded()) draw();
+    m.on("style.load", draw);
+    return () => {
+      m.off("style.load", draw);
+    };
+  }, [vehicles]);
   // live user puck — accuracy ring + heading cone + dot, fed by a
   // single GeoJSON source updated on each fix. Meter-sized polygon
   // features (not pixel radii) so they scale correctly with zoom.

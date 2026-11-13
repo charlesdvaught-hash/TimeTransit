@@ -12,6 +12,7 @@ import { useFavorites } from "./useFavorites"; // WAVE-2
 import { useSyncPush } from "./useSyncPush"; // WAVE-2
 import { useTripCache } from "./useTripCache"; // WAVE-2
 import { useTripSearch, type TripCacheBridge } from "./useTripSearch";
+import { useVehicles } from "./useVehicles";
 import { parseShareLink } from "./shareUtils";
 import {
   applyTheme,
@@ -314,6 +315,19 @@ export function useTimeTransit() {
     ? new Date(Date.parse(trip.endTime) + delay * 1000).toISOString()
     : null;
   const total = chain?.duration || (trip ? trip.duration + delay : undefined);
+  // Ambient live vehicles — OCTA fleet + Metro rail + Metro buses on the
+  // active trip's routes (same trips MapLayer draws).
+  const vehicles = useVehicles(
+    (chain
+      ? [
+          ...chain.visits.map((v) => v.trip),
+          ...(chain.returnTrip ? [chain.returnTrip] : []),
+        ]
+      : trip
+        ? [trip]
+        : []
+    ).flatMap((t) => t.legs),
+  );
 
   return {
     preferences,
@@ -374,6 +388,7 @@ export function useTimeTransit() {
     liveDepartures,
     liveChoice,
     liveBus,
+    vehicles,
     setLiveBus,
     trip,
     arrival,

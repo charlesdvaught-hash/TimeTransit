@@ -66,6 +66,7 @@ recentSearches, updatedAt}`).
 | TomTom                              | Typed query + origin bias point                         | Results never persisted                    |
 | Transit API (via relay)             | Stop coordinates, departure time                        | lat/lon only per terms §8.4                |
 | OCTA GTFS-RT (via relay)            | Nothing (feed poll)                                     | —                                          |
+| `api.metro.net` WebSocket           | Route codes only (feed subscription)                    | No account, no location sent               |
 | Relay `/llm`, `/events`, `/gmaps/*` | Query text / candidates / coords as the task requires   | Raw model output never enters chat history |
 | `/api/state` (hosted)               | The sync blob, under your verified email                | —                                          |
 

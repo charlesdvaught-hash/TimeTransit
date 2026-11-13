@@ -11,6 +11,7 @@ import { addObservations } from "./reliabilityStore";
 import { observation } from "./reliability";
 import { fetchTripDelays, fetchVehiclePositions } from "./gtfsrt";
 import { trySource } from "./liveSource";
+import { metroBusFor } from "./metro";
 import { liveVehicle } from "./transit";
 import { loadScanIndex } from "./scanData";
 import { inCoverage } from "./scan";
@@ -70,21 +71,30 @@ export function TripTracker({
     let pollMs = 30_000;
     const tick = async () => {
       const index = await loadScanIndex().catch(() => undefined);
-      if (!alive || !index || !inCoverage(index, w.fix)) return;
-      const [delays, vehicles] = await Promise.all([
-        trySource("octa-rt", () => fetchTripDelays(), { timeoutMs: 6_000 }),
-        trySource("octa-rt", () => fetchVehiclePositions(), {
-          timeoutMs: 6_000,
-        }),
-      ]);
+      if (!alive) return;
+      const covered = index && inCoverage(index, w.fix);
+      const [delays, vehicles] = covered
+        ? await Promise.all([
+            trySource("octa-rt", () => fetchTripDelays(), { timeoutMs: 6_000 }),
+            trySource("octa-rt", () => fetchVehiclePositions(), {
+              timeoutMs: 6_000,
+            }),
+          ])
+        : [undefined, undefined];
       if (!alive) return;
       const leg = transit[w.legIndex];
       let bus =
-        vehicles && leg
+        vehicles && leg && index
           ? liveBusFor(index, leg, vehicles, delays, Date.now())
           : null;
       // GTFS-RT has no match (non-OCTA leg or missing trip) — try
-      // Transit's vehicle feed, which covers all agencies it serves.
+      // Metro's own position ws (free, keyless), then Transit's
+      // vehicle feed, which covers all agencies it serves.
+      if (!bus && leg)
+        bus =
+          (await trySource("metro-rt", () => metroBusFor(leg), {
+            timeoutMs: 11_000,
+          })) ?? null;
       if (!bus && leg)
         bus =
           (await trySource("transit", () => liveVehicle(leg), {
@@ -92,6 +102,9 @@ export function TripTracker({
           })) ?? null;
       onBus?.(bus);
       setBusInfo(bus);
+      // watchdog below rides on the local scan index — outside coverage it
+      // can't run, but the live marker above still can.
+      if (!covered || !index) return;
       const r = watchJourney({
         index,
         legs,

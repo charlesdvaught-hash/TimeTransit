@@ -2,7 +2,7 @@
 // on a short cooldown so a dead or hung upstream can't stall every call; the
 // next source in the chain answers instead. Adding a provider (a hosted OBA
 // region, the self-hosted SoCal instance) means a new name + one chain entry.
-export type LiveSource = "oba" | "transit" | "octa-rt" | "index";
+export type LiveSource = "oba" | "transit" | "octa-rt" | "metro-rt" | "index";
 
 const DOWN_MS = 60_000;
 const downUntil = new Map<LiveSource, number>();

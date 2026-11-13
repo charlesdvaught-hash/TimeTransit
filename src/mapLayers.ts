@@ -16,6 +16,7 @@ const APP_LAYER_PREFIXES = [
   "network-",
   "route-",
   "user-",
+  "vehicles-",
   MATTE_LAYER,
 ];
 const isAppLayer = (id: string) =>
@@ -572,6 +573,78 @@ export function paintRidePois(map: maplibregl.Map, pois: Place[]): void {
         "circle-stroke-width": 1.5,
         "circle-stroke-color": "#04101c",
       },
+    });
+  } catch {
+    /* style mid-load — retried on style.load */
+  }
+}
+
+// Ambient live vehicles — one GeoJSON source re-set per poll. OCTA dots
+// orange, Metro blue; a heading tick rides on the bearing when present.
+export function paintVehicles(
+  map: maplibregl.Map,
+  dots: {
+    lat: number;
+    lon: number;
+    bearing?: number;
+    agency: string;
+    route?: string;
+  }[],
+): void {
+  if (!map.getStyle()) return;
+  const fc: GeoJSON.FeatureCollection = {
+    type: "FeatureCollection",
+    features: dots.map((d) => ({
+      type: "Feature" as const,
+      properties: {
+        agency: d.agency,
+        bearing: d.bearing ?? 0,
+        route: d.route ?? "",
+      },
+      geometry: { type: "Point" as const, coordinates: [d.lon, d.lat] },
+    })),
+  };
+  try {
+    const src = map.getSource("vehicles") as
+      maplibregl.GeoJSONSource | undefined;
+    if (src) {
+      src.setData(fc);
+      return;
+    }
+    map.addSource("vehicles", { type: "geojson", data: fc });
+    map.addLayer({
+      id: "vehicles-dots",
+      type: "circle",
+      source: "vehicles",
+      minzoom: 11,
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 5],
+        "circle-color": [
+          "match",
+          ["get", "agency"],
+          "metro",
+          "#3f8fd2",
+          "#e8810c",
+        ],
+        "circle-opacity": 0.85,
+        "circle-stroke-width": 1.2,
+        "circle-stroke-color": "#f4f7fb",
+      },
+    });
+    map.addLayer({
+      id: "vehicles-dir",
+      type: "symbol",
+      source: "vehicles",
+      minzoom: 13,
+      filter: [">", ["get", "bearing"], 0],
+      layout: {
+        "text-field": "▲",
+        "text-size": 8,
+        "text-rotate": ["get", "bearing"],
+        "text-rotation-alignment": "map",
+        "text-allow-overlap": true,
+      },
+      paint: { "text-color": "#f4f7fb" },
     });
   } catch {
     /* style mid-load — retried on style.load */

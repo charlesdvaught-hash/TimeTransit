@@ -17,6 +17,7 @@ Client env vars live in `.env.local` (gitignored). Worker secrets are set via
 | Photon (komoot)                            | Geocoding + category place search                | None                                                            | Browser direct                                                     |
 | OCTA GTFS (static)                         | Local reachability scan index                    | None                                                            | Build-time preprocess → `public/scan/octa.json`                    |
 | OCTA GTFS-Realtime                         | Trip delays + service alerts                     | None (keyless, no CORS)                                         | `/gtfsrt/*` dev proxy or relay                                     |
+| LA Metro API v2 (`api.metro.net`)          | Live bus/rail vehicle positions                  | None (keyless, beta)                                            | Browser WebSocket direct — no CORS needed                          |
 | Transit API v4                             | Live departure ETAs                              | `VITE_TRANSIT_API_KEY` (dev) / `TRANSIT_API_KEY` secret (relay) | `/transit` dev proxy or `/v4/*` relay — **never direct** (no CORS) |
 | TomTom Search                              | Business/address suggestion fallback             | `VITE_TOMTOM_API_KEY` (client-visible)                          | Browser direct                                                     |
 | Overture Maps                              | Local business index                             | None                                                            | Build-time preprocess → `public/places/oc.json`                    |
@@ -90,6 +91,35 @@ local intelligence layer.
 - OCTA offers the feeds free for useful web services, disclaims all
   warranties, and retains ownership — re-read the terms page before shipping
   anything new on top.
+
+## LA Metro API v2 (`api.metro.net`)
+
+Metro's own open-source API ([LACMTA/metro-api-v2](https://github.com/LACMTA/metro-api-v2),
+docs at `lacmta.github.io/metro-api-v2`) — their secondary public channel next
+to the Swiftly GTFS-RT feed. **Beta:** per `developer.metro.net`, URLs and
+field names are subject to change. Keyless, no published terms or rate limits.
+
+- **Working lane — WebSocket vehicle positions** (verified Nov 2026):
+  `wss://api.metro.net/ws/{agency_id}/vehicle_positions/{route_codes}` pushes
+  each filtered vehicle every ~3 s. `agency_id` is `LACMTA` (bus) or
+  `LACMTA_Rail` (rail — A=801, B=802, C=803, E=804, D=805, K=807);
+  `route_codes` is a comma-separated list of short codes (a bare `all` is not
+  accepted). Payload carries vehicle id, `tripId`, `routeId` (e.g.
+  `720-13201` → code `720`), direction, position, bearing, **speed**,
+  `currentStopSequence`, `currentStatus` (`IN_TRANSIT_TO`/`STOPPED_AT`),
+  `stopId`, timestamp. WebSocket needs no CORS — the browser connects
+  directly; `src/metro.ts` opens a short-lived socket, collects the
+  quiet-window burst, keeps the newest fix per vehicle, and closes.
+- **Dead lanes (verified Nov 2026 — retest before relying on them):**
+  the `trip_updates` WebSocket produces zero messages even on busy routes
+  over a 40 s window, and the REST real-time mirror (`/trip_detail/*`,
+  `/trips/{id}`, `/stop_times/trip_id/{id}`) returns `[]` for live vehicle,
+  trip, and route ids taken straight from the position stream. So the API
+  currently yields **positions, not predictions** — Metro legs get a live
+  marker but no per-stop delay arithmetic from this source.
+- `/{agency}/route_overview` works and returns the full route list, but the
+  REST side sends **no CORS headers**, so the browser can't consume it —
+  `src/metro.ts` derives route codes from legs and constants instead.
 
 ## Transit API v4
 

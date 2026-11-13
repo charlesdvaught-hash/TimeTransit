@@ -125,6 +125,7 @@ Most of TimeTransit's core functionality is key-free. Additional integrations ca
 | Transitous / MOTIS     | Transit routing and reachable-stop searches         | None                       |
 | Photon / OpenStreetMap | Geocoding and place discovery                       | None                       |
 | OCTA GTFS / GTFS-RT    | Local reachability and realtime transit information | None                       |
+| LA Metro API           | Live bus and rail vehicle positions                 | None                       |
 | TomTom Search          | Additional business and address suggestions         | Optional API key           |
 | Transit API            | Live departure estimates                            | Optional API key and relay |
 | Groq / Gemini          | AI-assisted search and trip planning                | Relay-side configuration   |
@@ -235,6 +236,7 @@ This is a heuristic optimization system, not a guarantee of a mathematically glo
 | `src/scan.ts`             | Local transit reachability scanning                      |
 | `src/places.ts`           | Local business index                                     |
 | `src/transit.ts`          | Live departure estimates                                 |
+| `src/metro.ts`            | LA Metro live vehicle positions (WebSocket)              |
 | `src/boarding.ts`         | GPS boarding detection                                   |
 | `src/reliability*.ts`     | Local transit reliability statistics                     |
 | `src/watchdog.ts`         | Mid-journey route monitoring                             |

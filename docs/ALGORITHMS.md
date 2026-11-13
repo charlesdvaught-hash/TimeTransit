@@ -177,6 +177,17 @@ delays:
   to board — feeding the "Exit & replan" prompt with an intercept-route label.
 - Actionable bail/missed states tighten polling 30 s → 15 s.
 
+The same poll drives the live-bus marker through a three-source chain:
+`liveBusFor` matches the leg's trip inside the OCTA index (stop pair +
+scheduled time → vehicle position), then `metroBusFor` opens Metro's
+`vehicle_positions` WebSocket filtered to the leg's route and picks the
+nearest same-route vehicle, then Transit's `/v4/vehicles` as the quota-spending
+last resort. Outside OCTA index coverage the watchdog can't run, but the
+marker chain still does — Metro territory gets live positions without the
+scan index. Metro supplies positions only (its `trip_updates` lane is dead
+upstream), so a Metro marker carries no `stopsAway`/`eta` — it's a dot, not a
+prediction.
+
 ## Keyless ETA fallback (`fallbackEta.ts` + `liveSource.ts`)
 
 When a live provider is down, keyless, quota-out, or can't see a leg, the
