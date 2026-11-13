@@ -8,6 +8,33 @@ Single-page Vite + React 19 + TypeScript app; **no backend, no accounts**.
 All persistent state lives in `localStorage`. Optional Transit API
 (transitapp.com) integration adds live departure ETAs to selected journeys.
 
+## Documentation
+
+Developer documentation lives in `docs/` (user-facing intro: `README.md`).
+This file stays authoritative for agent-facing conventions and verified
+facts; the docs carry the prose explanations:
+
+- `docs/ARCHITECTURE.md` — modules, data flow, state management, UI structure
+- `docs/ALGORITHMS.md` — reachability scan, ranking, multi-stop optimizer,
+  transfer risk, reliability, GPS detection, watchdog
+- `docs/API-INTEGRATIONS.md` — every provider, credentials, quotas, relays,
+  failure handling, Transit API terms
+- `docs/DEPLOYMENT.md` — static app, relay + site workers, Access, KV,
+  hosted-vs-self-hosted, OBA plan
+- `docs/DATA-AND-PRIVACY.md` — localStorage keys, sync, GPS, caching,
+  retention
+- `docs/DEVELOPMENT.md` — commands, env vars, tests, data preprocessing,
+  troubleshooting
+
+**Cleanup notes** (for a future dedup pass — until then, edit both when a
+fact changes): these AGENTS.md sections now overlap the docs and can later
+be slimmed to pointers — Environment → `docs/DEVELOPMENT.md`; Architecture
+table → `docs/ARCHITECTURE.md`; Verified facts → `docs/API-INTEGRATIONS.md`
+(provider receipts) + `docs/DEVELOPMENT.md` (build receipts); Transit API
+terms → `docs/API-INTEGRATIONS.md`; Watch out → `docs/DEVELOPMENT.md`;
+OneBusAway plan → `docs/DEPLOYMENT.md` + `deploy/oba/`; Waves 1–3 + mobile →
+`docs/ARCHITECTURE.md`.
+
 ## Commands
 
 On Windows use `npm.cmd` / `npx.cmd` (the Git Bash npm shim is unreliable here).
@@ -283,7 +310,7 @@ user.email=...` per commit, and `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env vars
   `.panel-grabber`; **defaults to `peek`** — auto-expands to `half` only when
   `selected`/`chain`/`error` gives it content; tap the grabber to toggle
   peek↔half (map stays visible while deciding).
-  `.panel-grabber`. `document.documentElement.dataset.sheet` reflects the state
+  `document.documentElement.dataset.sheet` reflects the state
   so `.hud` and `.follow-fab` reposition (both hide at `full`). The saved-places
   board is a horizontal `.board-chips` strip; Nearby Now compresses to
   `route · N min` pills (`.nn-stop` hidden). `tests/e2e/mobile-sheet.spec.ts`

@@ -1,113 +1,271 @@
 # TimeTransit
 
-A map-first, key-free transit explorer. Find coffee, groceries, businesses, and everyday places by actual door-to-door journey time, not just distance. Walking alternatives compete with transit. Results stream in as plans arrive.
+**Find out what's within reach. Not by distance, but by how long it actually takes to get there.**
 
-## Run
+TimeTransit is a map-first transit explorer that helps you find places based on real door-to-door travel time. Search for coffee, groceries, restaurants, businesses, or a specific destination and see what's genuinely convenient to reach by public transit and walking.
 
-Node 22.12+ recommended. On this Windows environment use `npm.cmd` / `npx.cmd` instead of the Git Bash npm shim.
+A place five miles away might be easier to reach than one two miles away. TimeTransit helps you find out.
 
-```
+**[Try TimeTransit](https://timetransit-site.charlesdvaught-34c.workers.dev) · [Explore the source code](https://github.com/charlesdvaught-hash/TimeTransit)**
+
+> The hosted app is currently access-controlled. See [Using the hosted app](#using-the-hosted-app) below.
+
+<!-- Add a large application screenshot or short GIF here. Ideally show the map, destination suggestions, and several competing journey times. -->
+
+## What makes it different?
+
+Most map applications start with distance or a destination you've already chosen. TimeTransit starts with a different question:
+
+**Where can I actually get to, and how long will it take?**
+
+Search for a type of place or a specific business. TimeTransit finds candidates, checks how they're connected to the transit network, and ranks the results by actual journey time.
+
+Walking isn't treated as an afterthought. Walking-only alternatives compete with transit journeys, and the displayed times account for walking, waiting, transfers, and riding.
+
+### Explore
+
+- **Search by intent.** Look for categories like coffee, groceries, pharmacies, or restaurants, or search for a specific business.
+- **Discover places by travel time.** Compare real transit and walking journeys instead of relying on straight-line distance.
+- **See your alternatives.** Explore different routes and available connections on the map.
+- **Choose when to travel.** Leave now, depart at a specific time, or plan around an arrival deadline.
+- **Find places across providers.** OpenStreetMap, Photon, TomTom, and a local business index help uncover places that individual providers might miss.
+
+### Plan your day
+
+- **Multi-stop trips.** Combine two to four destinations into one outing. TimeTransit searches for convenient stop combinations and can optimize the order of your errands.
+- **Saved places.** Keep Home, Work, Gym, and other destinations handy.
+- **Departures board.** See upcoming departures and estimated travel times to saved destinations.
+- **Nearby Now.** Find upcoming departures around your current starting point.
+- **Shareable trips.** Send a journey link that restores its origin, destination, and departure time.
+
+### Stay on top of your journey
+
+- **Live departure estimates.** Optional Transit API integration supplements scheduled times with live estimates.
+- **Route reliability.** Build local statistics from observed departures and compare early, on-time, and late performance.
+- **GPS trip tracking.** Optionally monitor boarding and arrival, with a simulation lab for testing the detection system.
+- **Transfer warnings.** Identify connections with limited transfer time and receive alerts when a better route becomes available.
+- **Offline recovery.** Restore cached journeys when connectivity drops. Live journey planning still requires a network connection.
+
+## Using the hosted app
+
+The hosted application is a separate, deployed instance of TimeTransit. It runs on Cloudflare Workers and has its own provider integrations, configuration, and access controls.
+
+**You do not need to clone the repository or configure API keys to use this version.**
+
+1. Open the [TimeTransit hosted application](https://timetransit-site.charlesdvaught-34c.workers.dev).
+2. Enter an email address that has been approved for access.
+3. Retrieve the one-time verification code sent to your email.
+4. Start exploring.
+
+Cloudflare Access maintains a 30-day session, so you won't need to repeat the process every time you visit.
+
+There is no separate TimeTransit account to create. Bookmarks, favorites, and recent searches sync between devices using your verified email.
+
+Access is currently restricted to approved email addresses. Contact the repository maintainer to request access.
+
+### API integrations
+
+The hosted application is configured independently of the source repository. Its deployment operator manages provider credentials, API relays, and optional integrations.
+
+Depending on which services are enabled, the hosted app can provide:
+
+- Worldwide public-transit routing through Transitous/MOTIS.
+- Live departure estimates through the Transit API.
+- Additional business suggestions through TomTom.
+- AI-assisted searches and multi-stop planning.
+- Google Places enrichment.
+- Local Orange County transit data, including OCTA service information.
+
+Visitors do not need to supply their own API credentials. Optional features depend on the integrations enabled for the deployed instance.
+
+## Running from source
+
+The repository contains the application source code, build scripts, and supporting Cloudflare Worker code.
+
+Cloning it gives you the project, not access to the hosted deployment or its private configuration. Cloudflare Access permissions, Worker secrets, KV storage, and provider credentials must be configured independently when setting up your own deployment.
+
+The good news is that the core application works without paid API keys. Basic place discovery and transit planning use public services.
+
+### Requirements
+
+- Node.js 22.12 or newer
+- npm
+- Internet connection for map tiles, place searches, and journey planning
+
+### Install and run
+
+```bash
 npm install
 npm run dev -- --port 5173
+```
+
+Open `http://localhost:5173`.
+
+### Build and test
+
+```bash
 npm run build
 npx vitest run
 ```
 
-Opt-in real API check: `LIVE=1 npx vitest run src/live.test.ts` (Git Bash; use npx.cmd here).
+Optional live API tests:
 
-### Installable app (PWA)
+```bash
+LIVE=1 npx vitest run src/live.test.ts
+```
 
-`npm run build` produces an installable PWA in `dist/` — manifest, icons, and a service worker are generated automatically. Serve `dist/` from any HTTPS host (Vercel, Netlify, GitHub Pages…), open it in Chrome on Android, and use "Add to Home Screen" / "Install app" for a standalone launcher. The service worker precaches the app shell, caches basemap tiles and fonts long-term, and keeps transit/search data network-first with a 24 h fallback — so the map and app chrome still load offline, but journeys always prefer live data. Dev mode is unaffected.
+**Windows note:** In this environment, use `npm.cmd` and `npx.cmd` instead of the Git Bash npm shim.
 
-**Live site (gated):** hosted on Cloudflare Workers at `https://timetransit-site.charlesdvaught-34c.workers.dev` behind **Cloudflare Access** — visitors enter an allow-listed email, get a one-time code, and keep a 30-day session. No account creation required for testers. The site worker (`site/index.js`) serves `dist/` and answers same-origin `/api/state` for per-user sync (bookmarks/favorites/recents keyed to the verified email — PC and phone sync automatically, each user gets their own blob). Deploy: `MSYS_NO_PATHCONV=1 VITE_BASE=/ npm run build` then `cd site && npx wrangler deploy` (the MSYS flag matters — without it Git Bash mangles `VITE_BASE` into `/Program Files/Git/` and every asset 404s).
+## API configuration
 
-**Going public:** GitHub Pages was disconnected (repo is public, but the old `gh-pages` branch is deleted). To relaunch publicly either re-run `npm run build` + `npx gh-pages -d dist -b gh-pages` (needs `VITE_BASE=/TimeTransit/`, the default), or remove the email allowlist from the Access policy and keep the Workers host. Adding tester emails is a one-line update to the Access "allow-listed" policy.
+Most of TimeTransit's core functionality is key-free. Additional integrations can be enabled independently.
 
-### Optional: Transit API key
+| Integration            | Purpose                                             | Credentials                |
+| ---------------------- | --------------------------------------------------- | -------------------------- |
+| Transitous / MOTIS     | Transit routing and reachable-stop searches         | None                       |
+| Photon / OpenStreetMap | Geocoding and place discovery                       | None                       |
+| OCTA GTFS / GTFS-RT    | Local reachability and realtime transit information | None                       |
+| TomTom Search          | Additional business and address suggestions         | Optional API key           |
+| Transit API            | Live departure estimates                            | Optional API key and relay |
+| Groq / Gemini          | AI-assisted search and trip planning                | Relay-side configuration   |
+| Google Places          | Optional ratings, hours, and place details          | Relay-side configuration   |
+| SeatGeek               | Optional event discovery                            | Optional client ID         |
 
-Live departure estimates on selected journeys use the [Transit API](https://api-doc.transitapp.com/) when a key is present. Put `VITE_TRANSIT_API_KEY=...` in `.env.local` (gitignored) and restart `npm run dev`. The dev server relays `/transit/*` requests to `external.transitapp.com` and stamps the key server-side, so it never reaches the browser bundle — this also works around the API's lack of CORS headers. Without a key, or if the key is rejected, journeys work as before with schedule-only times. Each selection of a journey costs roughly one request per transit leg (stop lookup + departures), so free-tier quotas can be exhausted with heavy clicking. To keep that in check, the app compares at most two MOTIS alternatives for the selected destination using the first boarding leg's live departure, and only once every 60 seconds.
+### Local environment variables
 
-**Outside dev** (the installed PWA), there is no dev proxy — point the app at a relay via `VITE_TRANSIT_RELAY` in `.env.local` at build time (e.g. `VITE_TRANSIT_RELAY=https://transit-relay.you.workers.dev`). A ready-made relay lives in `worker/transit-relay.js`: on Cloudflare's free plan (100k requests/day, no card), Workers & Pages → Create Worker → paste the file → Deploy, then set two variables under Settings → Variables: `TRANSIT_API_KEY` (type: secret) and `ALLOWED_ORIGINS` (comma-separated origins allowed to call it — your app's HTTPS origin and `http://localhost:5173`). Only listed origins get a usable CORS answer, so a stranger finding the URL can't drain your key from a browser. CLI alternative: `npx wrangler deploy` from `worker/` after `wrangler secret put TRANSIT_API_KEY`.
+Create `.env.local` in the repository root. It is gitignored and should never be committed.
 
-### Optional: TomTom place fallback
+**TomTom Search**
 
-OpenStreetMap has no entry for plenty of real businesses, so the suggestion box also queries [TomTom Search](https://developer.tomtom.com/search-api/documentation/search-service/fuzzy-search) and merges both lists, ranked by how well each name matches what you typed. A business that starts with your words then outranks a similarly named one, and an exact name surfaces above the place-type rows, so pressing Enter picks the business. The fallback runs on its own on every settled query (250 ms debounce, 3+ characters, session cache) — there is no button, no extra click and no “not found” dead end. Selecting a TomTom suggestion plans the journey to its coordinates directly; it is never re-searched by name.
+```env
+VITE_TOMTOM_API_KEY=your_key
+```
 
-Put `VITE_TOMTOM_API_KEY=...` in `.env.local` (gitignored) and restart the dev server. A `VITE_` value is readable in the bundle by design, which is why TomTom lets you restrict a key: add your app's origins to the key's domain whitelist (CORS) and limit it to the Search product. Free tier is 2,500 Search requests per month without a credit card, so the fallback is debounced and cached per session; a Places Search API key (10,000 Suggest requests/month) is the upgrade path if that ceiling binds. Without a key, or when TomTom answers 401/403, the fallback disables itself for the session and OSM-only suggestions work as before. TomTom results are shown with “Places © TomTom” in the dropdown and are never written to localStorage or any other store.
+The TomTom key is included in the browser bundle. Restrict it to your application origins and the Search API.
 
-## Explore
+**Transit API (development)**
 
-Allow location access, search an origin address, or use the pin button then click the map. The map's Dark / Satellite switch swaps between the CARTO dark basemap and key-free Esri World Imagery with a boundaries-and-places label overlay; the choice is remembered locally. Location can be granted from the browser prompt on first visit, the "Use my location" action under the origin card (it hides once GPS is your origin — re-locate from the "Change start" menu), or the crosshair control on the map's top-right; denial explains how to re-enable it in site settings. Chicago is the fallback. Choose a category or business name and optionally a departure date/time. Typing opens suggestions for place types (Coffee, Pharmacy, Grocery…) and nearby named places: pick a type to optimize across every matching place, or pick a named place to pin that exact stop. Arrow keys move through the list and Enter selects. Free-text searches fuzzy-match against category synonyms (so "groery store" or "urgent care" resolve to OSM tags like `shop:supermarket`) and merge tag-filtered results with name matches — places like Walmart surface even though their names never say "grocery". Candidates are restricted to approximately 20 km, deduplicated, and pre-ranked by MOTIS `one-to-all` reachability — reach time to a stop within 1.5 km plus a walk at your configured speed — before the best 20 are planned exactly, so a farther place on an adjoining bus route can outrank a nearer one with no service. If reachability is unavailable, candidates stay in distance order. Transit corridors from all planned alternatives are drawn as softly pulsing glowing lines, with the selected journey highlighted on top. Transfers are planned by MOTIS at every served stop, including ordinary stops where routes cross at intersections; a transfer is never invented at an intersection that has no stop. Each result uses the fastest Transitous itinerary including direct walking. Times include walking, waiting, rides, and transfers; arrival times use your browser timezone. Select a result for its colored route and expandable leg details. Route geometry respects MOTIS's encoded-polyline precision field (6 for the v2 plans used here).
+```env
+VITE_TRANSIT_API_KEY=your_key
+```
 
-## Walking preferences and origin
+The Vite development server proxies requests and adds the key server-side rather than exposing it in the browser bundle.
 
-Walking preferences persist locally: 800 m per walking leg by default (200–2,000 m) and a selectable walking speed (m/s). Changes invalidate journeys; search again to recompute. MOTIS receives `maxPreTransitTime`, `maxPostTransitTime`, and `maxDirectTime` in seconds, computed as distance / speed, plus `pedestrianSpeed` and `withDistance=true`. These are street-routing time budgets, not exact distance guarantees. Returned walking legs exceeding the distance are visibly flagged, including transfers; if distance is absent, duration × speed is used. The current OpenAPI has no maximum transfer-walk-distance parameter, so transfer walks are checked locally, not silently dropped.
+**Transit API (production)**
 
-The last origin is saved locally. Origin geocoding is separate from nearby destination search (no 20 km restriction). Bare five-digit ZIPs use a US-biased Photon query and require an exact postcode match, so `90620` resolves to Buena Park rather than a similarly numbered street abroad.
+Production PWA builds cannot use the Vite development proxy. Configure a deployed relay instead:
 
-## Local reliability and optional boarding estimates
+```env
+VITE_TRANSIT_RELAY=https://your-transit-relay.workers.dev
+```
 
-Every plan response records all realtime transit-leg departure estimates, including alternatives. Identity is agency ID + route ID; observations are deduplicated by trip ID + stop ID + source. GPS supersedes a feed estimate for the same trip/stop, and otherwise carries 3× the weight of feed data. Statistics show distinct departure-sample count, weighted median delay, and weighted early/on-time/late percentages. More than 60 seconds early or more than 300 seconds late is outside the on-time window. With at least five distinct trip/stop samples, under 70% on time or a median outside that window flags a route as “Runs early” or “Often late.” These are local, potentially biased estimates—not a universal reliability rating. Arrivals are recorded separately but are not used to penalize early departures. Repeated feed polls do not inflate sample counts.
+The relay stores the actual `TRANSIT_API_KEY` as a Cloudflare Worker secret. Configure `ALLOWED_ORIGINS` to include the application origin and any local development origin that needs access.
 
-“Start trip · GPS” requests `watchPosition` only on demand. For each transit leg, including multi-stop/return legs, the detector waits near boarding (75 m + capped accuracy allowance), then requires >4 m/s measured motion for at least 20 seconds within about 60 m of the route geometry. Departure is timestamped at the first qualifying fix outside the stop area, not when confirmation finishes. Arrival requires sustained slowing near the exit or walking off the polyline. Fixes with >50 m uncertainty, stale timestamps, and large gaps do not establish boarding. Missing route geometry or schedule disables tracking with a visible explanation. GPS alone cannot distinguish parallel routes or prove boarding: manual trip selection and foreground GPS are required. Permission denial, background suspension, tunnels and sparse fixes may prevent detection. No raw GPS trace is saved.
+Without these optional integrations, TimeTransit falls back to its underlying public services wherever possible.
 
-Open `/?simulate=1` to reveal the simulation lab in the journey HUD. Pick any selected bus/train leg and a signed delay in minutes, then replay a synthetic GPS trace through the same detector. “Seed 5 demo trips” can demonstrate a reliability flag (choose −2 min or >5 min; +4 min is on time by the configured window). Synthetic observations are tagged and excluded from real badges/stats; enable “Show simulated data only” in Route reliability to inspect them. Demo identities are reused so repeated seeding does not artificially multiply samples.
+## Installing as an app
 
-Observations, preferences and last origin stay in this browser’s localStorage; no account or upload. Data is capped at 10,000 observations. The Reliability panel lists route and stop stats and has a clear-data button. Storage failures display a warning; in-memory use still works. Feed delays are predictions, GPS delays are estimates, and missing schedule/identity fields are not invented.
+TimeTransit is a Progressive Web App (PWA).
 
-## AI modes & event discovery (optional)
+Build the project:
 
-AI usage is user-controlled in Settings: **None** (no AI calls), **Minimal** (one call to interpret a free-text search into place terms), or **Full** (the adventure assistant — "lunch, then a museum, back by 6" becomes a planned multi-stop trip). Descriptive searches like "nerdy bar" or "budget mexican food" get two cheap assists: the parse step expands them into concrete searchable terms ("board game bar", "taqueria") so more real places surface, and a second `rank` call reorders the top reachability candidates by intent fit — judging only the names and venue kinds actually fetched, never inventing places — so the plan calls go to the best matches while display order stays journey-time. Optional constraints (`min_rating`/`max_price`) are extracted too and enforced only when a provider returns real data (Google Places, gated on a relay secret — the app works without it). Calls go to the relay's `POST /llm`, which tries Groq (`openai/gpt-oss-20b`) then Gemini as fallback, rate-limited per IP. Dates the model emits are clamped three ways: the client resolves weekdays/tomorrow into concrete dates in the prompt, the structured-output schema constrains `depart_at`/`return_by` to a rolling ~62-day window, and a client-side freshness filter drops stale timestamps — so "this Friday" can't come back as last Friday. Any provider failure degrades to ordinary search.
+```bash
+npm run build
+```
 
-`GET /events` on the relay fans out to SeatGeek (optional `SEATGEEK_CLIENT_ID`), LA and Santa Monica civic feeds, and Mobilizon, normalized into one list — missing or empty sources fail quietly. Event stops the assistant can't match fall back to venue search with a visible note. Settings also offers Google Maps links per result and optional in-app place details (rating/hours) via `/gmaps/*`.
+This produces an installable application in `dist/`, including its manifest, icons, and service worker.
 
-## Saved places, board & ride mode
+Deploy `dist/` to an HTTPS host. On Android, open the site in Chrome and choose **Add to Home Screen** or **Install app**.
 
-The idle screen is a departures board: **Get me home** (one tap to your saved Home), per-place ETAs for up to four saved places (Home/Work/Gym/custom, edited in Settings — set your start by search, map pick, or GPS, then save), a **Nearby Now** strip of next departures from stops around your start, and recent-search chips. The departure selector offers Leave now / Leave at / **Arrive by** (threaded to MOTIS `arriveBy`). Journey details can be shared as a link that rehydrates origin, destination, and time on open.
+The service worker precaches the application shell and retains map tiles and fonts. Transit and search data use network-first caching with a 24-hour fallback. Cached content helps the app recover offline, but new journeys require connectivity.
 
-On a ride: the map shows a GPS puck with accuracy ring and heading cone plus a recenter FAB cycling free → center → heading camera modes, and a minimized "riding view" dims the basemap to show only your route and walk chevrons. Boarding detection surfaces food/coffee/grocery POIs within ~250 m of your destination stop; GTFS-RT service alerts badge affected departures and legs; a star on any transit leg saves it as a favorite line; and the last plan is cached so losing signal restores the trip with an "Offline — cached trip" pill. Bookmarks/favorites/recents sync across devices via KV-backed `/api/state` — auto-configured per-user on the hosted site (keyed to your Cloudflare Access email; no setup), or manually on self-hosted builds via a relay URL + token in Settings → Sync. Local storage remains primary.
+## Deployment
 
-## Multi-stop optimizer
+The repository includes two Cloudflare Worker components:
 
-Separate destinations with `+` in the one search box — e.g. `coffee + pharmacy + home depot` — to plan a multi-stop trip (2–4 stops). Any term can be a category-like phrase or a place name; “Add to trip” on a result appends its name and pins that exact place. Each stop gets its own stay-duration slot (default 15 minutes); the slots appear as soon as you type `+`, including a placeholder for the next stop. An optional round trip also appears once there are multiple destinations. For free-text stops, candidates are ranked by estimated arrival — the local scan index inside OCTA coverage, a one-to-all reachability call outside it, and a real plan only for candidates the estimates cannot see — keeping the best six plus up to fourteen more as swap alternates. Stop order is chosen by a beam search over the OCTA scan index — each state expands with one reachability scan, so ordering follows real bus paths and schedules, not straight-line guesses (outside coverage, a haversine heuristic still applies). Per-stop ordering — drag a stop row by its grip handle, or tap the lock icon to pin that slot — constrains the search, with plain-language errors for conflicts (two Firsts, all-Middle with <3 stops). Results appear as route cards grouped around the rarest stop — the keystone, e.g. a museum among twenty lunch spots — each card a complete trip through a different keystone pick, ranked by whole-errand convenience: total duration plus a per-transfer penalty, minus credit for un-picked candidates within walking distance of the route. Each stop also has a locate-and-swap button and the timeline lists other nearby options per stop (from the optimizer's candidate pool plus places clustered around the other destinations); picking one substitutes it and re-optimizes the whole chain. A note shows when unpinning would save time. The displayed routes are verified with real chained MOTIS plans. Each leg departs at the previous actual arrival plus dwell, including dwell at the last stop. This is a bounded heuristic, not an exhaustive guarantee of a global optimum. Failed complete combinations are skipped; if none work the API error is shown. Unit tests cover normal, empty, error, geometry, ranking, walking and chained-time behavior.
+**Transit relay — `worker/transit-relay.js`**
 
-## Code layout
+Provides the server-side integrations used by the application, including Transit API key injection, OCTA GTFS-Realtime feeds, AI requests, event discovery, Google Places enrichment, journey planning, and optional KV-backed synchronization.
 
-- `src/api.ts` — Transitous/MOTIS journey planning + Photon geocoding; shared 3-way concurrency queue, session cache, abort handling.
-- `src/suggestions.ts` — shared suggestion type, name-relevance scoring and provider merge (pure).
-- `src/tomtom.ts` — TomTom Search client for businesses OSM is missing; self-disabling without `VITE_TOMTOM_API_KEY`.
-- `src/transit.ts` — Transit app API client (live departures): boarding-stop lookup, batched `stop_departures` (one call covers every boarding stop), relay-aware (`VITE_TRANSIT_RELAY` or `/transit` dev proxy), self-disabling when the key/relay is absent.
-- `src/scan.ts`, `src/scanData.ts` — pure RAPTOR-style reachability scan over a preprocessed OCTA GTFS index (rounds of boarding → ride → transfer walks, service-calendar aware, overnight trips), plus the lazy fetcher for `public/scan/octa.json` (~3.4 MB, service-worker cached StaleWhileRevalidate). Used to rank candidates and order multi-stop trips inside OCTA coverage; MOTIS still plans what you see and handles everywhere else.
-- `src/gtfsrt.ts` — minimal GTFS-Realtime protobuf decoder + `/gtfsrt` fetch (OCTA trip updates **and** service alerts, keyless). Delays are applied to matching trips in the scan when departing within ~2 h; alerts surface as badges on departure rows and transit legs.
-- `scripts/build-scan-index.mjs` — build-time OCTA GTFS → scan-index preprocessor (patterns, trips, calendars, transfer walk links). Run: `node scripts/build-scan-index.mjs <gtfs-dir-or-zip>` → `public/scan/octa.json`.
-- `src/core.ts` — pure logic only: distance, ranking, polyline decode, category chips, fuzzy category matcher (synonyms + edit distance + stopwords), multi-stop optimizer.
-- `src/basemap.ts` — MapLibre styles for the dark and satellite basemaps; persisted basemap choice.
-- `src/useTimeTransit.ts` — the controller: all app state, explore vs `+`-separated multi-stop runs, per-stop dwells, live alternative selection, pinned places.
-- `src/reliability*.ts`, `src/storage.ts` — observation model, dedupe, weighted statistics, localStorage persistence.
-- `src/boarding.ts`, `src/useTripTracking.ts`, `src/TripTracker.tsx` — opt-in GPS boarding detector + simulation lab.
-- `src/places.ts`, `scripts/build-places-index.mjs` — Overture Maps POI index (`public/places/oc.json`, ~237k Orange County businesses each carrying a venue-category field, ~26 MB/5.7 MB gz, lazy + SW-cached): local business search merged into suggestions and results, independent of OSM/TomTom coverage.
-- `src/watchdog.ts` — mid-trip route watchdog (pure): while tracking, re-checks the plan against GTFS-RT delays — evaluates remaining stops on the current leg plus where you're standing, alerts on a better continuation (≥3 min, sound + banner + "Switch route" re-plans via MOTIS) or a connection that is no longer catchable, and `lookAheadBails()` scans up to 4 stops ahead for early-exit intercepts (≥90 s reaction window, ≥8 min savings, "Exit & replan" prompt).
-- `src/transferRisk.ts`, `src/liveSource.ts`, `src/gtfsrt.ts` — transfer risk tiers (LOW/MEDIUM/HIGH_RISK from buffer + walk + ride length, tightened polling near risky transfers, stale-feed elevation via the relay's `x-feed-stale` header), context-aware provider ordering (local OCTA/index sources for planning, Transit first for guidance/tracking), and the dependency-free GTFS-RT decoder.
-- `src/Panel.tsx`, `src/ResultsList.tsx`, `src/MapLayer.tsx`, `src/Hud.tsx` — UI shell, unified search/results/timeline, map (dark/satellite basemaps, themed controls, GPS puck + follow modes + minimized riding view), journey HUD. On mobile the panel is a three-state bottom sheet (peek/half/full, drag-snapped) and the saved-places board renders as a horizontal chip strip.
-- `src/assistant.ts`, `src/AdventureAssistant.tsx`, `src/semantic.ts`, `src/events.ts`, `src/gmaps.ts`, `src/GmapsLink.tsx` — optional AI + enrichment layer: natural-language query parsing + intent ranking (`semantic.ts`: `parse`, `rank` tasks), the adventure assistant (Full AI mode), local-event discovery via the relay, and Google Maps place links/details.
-- `src/storage.ts`, `src/syncClient.ts`, `src/shareUtils.ts`, `src/useUserPosition.ts` — typed localStorage helpers (saved places, recents, favorites, plan cache), optional Cloudflare-KV cross-device sync client, share-link encode/decode, and the permission-gated idle GPS watcher.
-- `worker/transit-relay.js` — Cloudflare Worker relay: `/v4/*` → Transit API (injects the key), `/gtfsrt/*` → OCTA GTFS-Realtime with last-good feed shield (stale cache on upstream failure), `GET /api/arrivals` (edge-decoded OCTA arrivals, OBA-shaped), `/api/health` + 5-min cron upstream watchdog → KV, `POST /llm` → Groq→Gemini fallback for the AI features, `GET /events` → event sources (SeatGeek optional + civic/open feeds), `GET /gmaps/*` → Google Places, plus `/api/state` (KV sync, Bearer-token), `/api/board` (edge-batched bookmark ETAs), `/api/nearby` (stops + departures), `/api/plan` (MOTIS passthrough).
-- `site/index.js`, `site/wrangler.toml` — the gated production host: Cloudflare Access (email OTP allowlist) + optional `?key=` fallback gate → serves `dist/` static assets and answers `/api/state` against KV keyed by the Access-verified email (per-user sync).
-- `vite.config.ts` — dev proxies for the Transit key and OCTA GTFS-RT + PWA plugin (manifest, service worker).
+A relay can be deployed independently on Cloudflare Workers.
 
-## Public services & limitations
+**Hosted application — `site/index.js`**
 
-- **OCTA open data** (https://www.octa.net/about/about-octa/open-data): static GTFS (`google_transit.zip`, feed window Nov 2026 – Feb 2027 — re-run `scripts/build-scan-index.mjs` before expiry) powers the local reachability scan; keyless GTFS-Realtime trip updates are proxied through the relay for live delays on near-term trips. OCTA offers the feeds free for useful web services, disclaims all warranties, and retains ownership — re-read the terms on that page before shipping.
-- **Transitous / MOTIS 2** `https://api.transitous.org/api/v2/plan` plus `/api/v6/one-to-all`: worldwide community transit routing and reachable-stop queries (reachability durations and `maxTravelTime` are minutes). v2 supplies precision-6 geometry valid for Southern California longitudes (v1 precision-7 geometry is undefined beyond 107° longitude). Provider names include all plan alternatives, not just the fastest choice. No agency whitelist: OCTA, Metro - Los Angeles, Metrolink, Amtrak and other supported bus/train feeds work through the same pipeline. Service and realtime coverage depend on the feed and departure time. `/api/v1/map/stops` currently lacks agency names; provider labels come from plan responses. Parameter reference: https://github.com/motis-project/motis/blob/master/openapi.yaml.
-- **TomTom Search API** (optional, `VITE_TOMTOM_API_KEY`): business and address fallback for the suggestion box, results merged with Photon and labelled “Places © TomTom”. Data © TomTom. Only the typed query plus the origin as a bias point is sent; responses are session-cached and never persisted. Free tier: 2,500 Search requests/month, no card; exceeding limits returns 429 and the fallback stops for the session.
-- **Photon / komoot**: OpenStreetMap geocoding and category search, using `include=osm.key.value` without name text and a bounded search area for destinations. Coverage depends on OSM tagging; results are not a complete business directory. Origin search can relocate anywhere.
-- **OpenStreetMap contributors**: place, pedestrian and street data, © OpenStreetMap contributors, https://www.openstreetmap.org/copyright.
-- **CARTO** Dark Matter basemap, https://carto.com/attributions; **MapLibre GL JS** rendering. Attribution remains on the map.
-- **Esri** World Imagery and World Boundaries and Places raster tiles for the satellite basemap, https://www.esri.com/ — imagery © Esri, Maxar, Earthstar Geographics. Attribution remains on the map.
-- **Jockey One** via Google Fonts (Tahoma/system fallback).
+Serves the built application and handles the gated hosted experience. Cloudflare Access provides email-based verification, while the site Worker handles per-user state synchronization.
 
-No backend, secrets, analytics or raw GPS history. Last origin and stop-level reliability observations persist locally as described above. Requests transmit journey coordinates and search terms to the public providers, not the GPS trace. All external JSON requests share a maximum-three concurrency queue, bounded in-memory response cache and cancellation for stale searches/origin changes. A new search uses one departure snapshot; cache lasts the current page session. Public services can be slow, unavailable or rate limited; visible errors are not synthetic fallback results. Geolocation requires permission and HTTPS or localhost. Mobile uses a three-state bottom sheet (peek / half / full, drag-snapped from the grabber) with secondary controls tucked into Change start / Settings menus; the saved-places board and nearby departures collapse to horizontal chip strips. While a search runs, an animated route-scan card in the panel and a radar ping at the map origin show live progress (reduced-motion aware). Map/network access requires internet.
+The hosted deployment uses Cloudflare KV for cross-device user data.
 
-## Roadmap
+The source code and production configuration are separate. Building the frontend does not automatically deploy or configure either Worker.
 
-Explored but not shipped: a self-hosted OneBusAway instance fed the OCTA and LA Metro GTFS-Realtime feeds could provide predicted arrivals, vehicle positions and service alerts for Southern California, removing the dependency on the transit app API's free tier (capped monthly calls, with a paid agreement required at real scale). Since recorded observations are already keyed by source, a prediction-vs-actual accuracy scoreboard is a natural extension of the existing local reliability model — provider estimates (keyless feed, the planned OneBusAway, Transit API) compared against GPS-observed real rides would surface as per-provider stats in the Reliability panel. The same source could also supply region-aware live ETAs while traveling, since hosted OneBusAway deployments already exist for Seattle/Puget Sound, San Diego, Washington DC, Tampa, Davis and Adelaide — additive per-region, and never a regression to the OCTA GTFS-Realtime path at home. Design notes live in `onebusawaybrainstorm.txt` in the repo root.
+## Privacy and data
+
+TimeTransit is designed to avoid collecting more information than it needs.
+
+- Walking preferences, the last origin, and reliability observations are stored locally in the browser.
+- Saved bookmarks, favorites, and recents can synchronize through the hosted application's per-user KV storage.
+- Journey coordinates and search terms are sent to the public providers needed to retrieve routes and places.
+- GPS tracking is opt-in. Raw GPS traces are not saved.
+- GPS-based observations and feed-based estimates are distinguished in reliability calculations.
+- Search results and provider responses are cached in memory for the current session.
+
+The app does not require an account for local use. Hosted synchronization uses the email verified through Cloudflare Access.
+
+## Under the hood
+
+TimeTransit combines public transit routing, local search indexes, and its own journey-planning logic.
+
+**Transit routing:** Transitous/MOTIS supplies journey plans and reachable-stop queries. Walking, waiting, transfers, and riding are included in door-to-door journey calculations.
+
+**Local transit intelligence:** An OCTA GTFS index is preprocessed at build time into a compact reachability dataset. A RAPTOR-style scan estimates which destinations can be reached efficiently before more expensive journey planning is performed.
+
+**Place discovery:** Photon, OpenStreetMap, TomTom, and a local Overture Maps business index contribute candidates. Results are merged, deduplicated, and ranked before detailed journey planning.
+
+**Multi-stop optimization:** A bounded search combines candidate destinations, stay durations, and transit reachability to construct complete errands. Final displayed journeys are checked against actual chained MOTIS plans.
+
+**Realtime reliability:** Transit observations are deduplicated by trip, stop, and source. GPS observations and feed predictions receive different weights, allowing local reliability estimates to develop over repeated journeys.
+
+This is a heuristic optimization system, not a guarantee of a mathematically global optimum. Transit coverage, realtime predictions, and business data depend on the underlying providers.
+
+## Project structure
+
+| Location                  | Responsibility                                           |
+| ------------------------- | -------------------------------------------------------- |
+| `src/api.ts`              | Transit routing and geocoding                            |
+| `src/core.ts`             | Shared ranking, geometry, search, and optimization logic |
+| `src/scan.ts`             | Local transit reachability scanning                      |
+| `src/places.ts`           | Local business index                                     |
+| `src/transit.ts`          | Live departure estimates                                 |
+| `src/boarding.ts`         | GPS boarding detection                                   |
+| `src/reliability*.ts`     | Local transit reliability statistics                     |
+| `src/watchdog.ts`         | Mid-journey route monitoring                             |
+| `src/useTimeTransit.ts`   | Main application state and journey controller            |
+| `worker/transit-relay.js` | External API relay and server-side integrations          |
+| `site/index.js`           | Hosted application and user synchronization              |
+| `scripts/`                | Build-time data preprocessing                            |
+
+## Developer documentation
+
+Detailed technical documentation lives in [`docs/`](docs/):
+
+| Document                                               | Contents                                                                                        |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)         | Application architecture, data flow, modules, state management                                  |
+| [`docs/ALGORITHMS.md`](docs/ALGORITHMS.md)             | Reachability scanning, ranking, transfer risk, reliability, multi-stop optimizer, GPS detection |
+| [`docs/API-INTEGRATIONS.md`](docs/API-INTEGRATIONS.md) | Every provider, credentials, quotas, relays, failure handling                                   |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)             | Hosted versus self-hosted deployments, Cloudflare, Access, KV, Worker configuration             |
+| [`docs/DATA-AND-PRIVACY.md`](docs/DATA-AND-PRIVACY.md) | Local storage, synchronization, GPS, external requests, retention                               |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)           | Build process, tests, live tests, data preprocessing, troubleshooting                           |
+
+Contributor-facing conventions and verified operational facts live in [`AGENTS.md`](AGENTS.md).
+
+## Current limitations
+
+- Public transit coverage depends on the feeds available for a particular region and time.
+- Live departures are available only when the relevant integration and data source are configured.
+- OpenStreetMap and external place providers do not guarantee complete business coverage.
+- Local reliability statistics require sufficient observations and can be biased by the routes and trips recorded.
+- GPS tracking can be affected by browser permissions, background suspension, tunnels, and poor location accuracy.
+- Multi-stop planning uses bounded heuristics rather than exhaustive optimization.
+- Live map access and new journey searches require an internet connection.
+
+TimeTransit is an actively developed project. Some integrations and features are optional and may differ between local installations and hosted deployments.
