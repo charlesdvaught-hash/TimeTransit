@@ -147,6 +147,12 @@ each transit leg — including multi-stop/return legs:
 - **Rejections:** fixes with >50 m uncertainty, stale timestamps, or large
   gaps don't establish boarding. Missing route geometry or schedule disables
   tracking with a visible explanation.
+- **Destination POIs:** once `isBoarded`, up to 8 food/coffee/grocery POIs
+  within ~250 m of the destination stop are snapshotted via `placesNear` +
+  `ridePoiKind` (word-boundary match — "marketing agency" and "barber" are
+  excluded). Cards render in the panel, pins on the `route-dest-pois` layer
+  (the `route-` prefix is in `APP_LAYER_PREFIXES`, so it survives the
+  riding-view filter).
 - **Limits:** GPS alone can't distinguish parallel routes or prove boarding —
   manual trip selection + foreground GPS required. Permission denial,
   background suspension, tunnels, and sparse fixes can all prevent detection.

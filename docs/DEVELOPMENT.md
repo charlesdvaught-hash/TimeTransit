@@ -33,6 +33,10 @@ bypass that, and edit it via shell if tooling refuses).
 | `VITE_GOOGLE_EMBED_KEY` | Client-visible; enables `GmapsLink` in-app iframe. Absent → link-only                                           |
 | `VITE_BASE`             | Vite base path, default `/TimeTransit/` — see the MSYS trap below                                               |
 
+The dev server also proxies `/api/*` → the deployed relay
+(`transit-relay.charlesdvaught-34c.workers.dev`), so the relay-side routes
+(arrivals, health, state sync) work locally without a local worker.
+
 Worker env (never bundled; secrets via `wrangler secret put`, plain values as
 `[vars]` in `worker/wrangler.toml`): `TRANSIT_API_KEY`, `ALLOWED_ORIGINS`,
 `GROQ_API_KEY`, `GEMINI_API_KEY`, `LLM_PROVIDERS`, `GMAPS_API_KEY`,
